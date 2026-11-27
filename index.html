@@ -239,6 +239,7 @@ details ul{margin:4px 0 0;padding-left:16px;font-size:.8rem;color:var(--muted)}
         <label class="row outfmt" style="gap:6px;font-size:.88rem">Entregar en <select class="outFmt"><option value="auto">Lo que pida el plan</option><option value="JPG">JPG</option><option value="MP4">MP4</option></select></label>
         <button type="button" id="genAll" hidden></button>
         <label class="row" style="gap:6px;font-size:.88rem"><input type="checkbox" id="inclWarn" checked> Incluir los que dicen “Revisar”</label></div>
+      <div class="row" style="gap:8px 12px;margin:6px 0 4px;flex-wrap:wrap"><label class="row" style="gap:8px;font-size:.88rem">Nombre de los archivos en el ZIP: <input id="campNombre" type="text" style="min-width:220px" placeholder="Nombre de la campaña"></label><span class="hint" id="campEj" style="margin:0"></span></div>
       <p class="hint">Cada ZIP lleva los artes de ese proveedor en una carpeta por soporte, más una lista con lo que contiene. Súbelo a tu OneDrive, Drive o WeTransfer y manda el link. Los que no cumplen no se incluyen.</p>
       <div class="tablewrap"><table id="entTable"></table></div>
     </div>
@@ -712,6 +713,8 @@ function readPlanRows(rows, fileName) {
   for (let i = 0; i < Math.min(rows.length, 25); i++) if ((rows[i] || []).some(c => /MEDIDA/i.test(String(c)))) { hi = i; break; }
   if (hi < 0) throw new Error("No encontré una columna llamada “Medidas” en el plan.");
   const H = rows[hi].map(c => String(c || "").trim());
+  // Título arriba de los encabezados (ej. "Zetabe_ML_Double Days 12.12"), por si no hay columna de campaña
+  const titulo = rows.slice(0, hi).flat().map(c => String(c || "").trim()).find(c => c && !/^\d+$/.test(c)) || "";
   const col = re => H.findIndex(h => re.test(h));
   const c = { med: col(/MEDIDA/i), prov: col(/MEDIA\s*OWNER|PROVEEDOR/i), ubi: col(/UBICACI/i), ciudad: col(/CIUDAD|PLAZA/i), venue: col(/VENUE|TIPO/i), fmt: col(/FORMATO/i), dur: col(/DURACI/i), camp: col(/CAMPA/i) };
   const byKey = new Map(); let n = 0, sinMedida = 0, nombre = "", multi = 0;
@@ -732,7 +735,7 @@ function readPlanRows(rows, fileName) {
   }
   if (!n) throw new Error("El plan no tiene filas con medidas que pueda leer.");
   const reqs = [...byKey.values()].sort((a, b) => a.proveedor.localeCompare(b.proveedor, "es") || b.ancho * b.alto - a.ancho * a.alto);
-  return { nombre: nombre || fileName.replace(/\.[^.]+$/, ""), archivo: fileName, filas: n, sinMedida, multi, reqs };
+  return { nombre: nombre || titulo || fileName.replace(/\.[^.]+$/, "").replace(/[_ ]*(APROBADO|NO[_ ]?MODIFICAR|FINAL|V\d+)\b/gi, "").trim(), archivo: fileName, filas: n, sinMedida, multi, reqs };
 }
 async function loadPlan(file) {
   const btn = $("#pickPlan"); btn.disabled = true; btn.textContent = "Leyendo plan…";
@@ -751,6 +754,8 @@ async function loadPlan(file) {
   finally { btn.disabled = false; btn.textContent = "Subir otro plan"; }
 }
 function setPlan(plan) {
+  if (plan && (!S.plan || S.plan.nombre !== plan.nombre || !$("#campNombre").value)) $("#campNombre").value = plan.nombre || "";
+  try { campEj(); } catch {}
   S.plan = plan; S.global = plan ? "auto" : S.global;
   if (plan) S.files.forEach(f => { if (!findSup(f.sel)) f.sel = "auto"; });
   else S.files.forEach(f => { if (String(f.sel).startsWith("plan-")) f.sel = "auto"; });
@@ -1537,6 +1542,14 @@ function renderEntregas() {
 }
 let zipP = null;
 const jszip = () => zipP ||= loadScript("https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js").then(() => window.JSZip).catch(e => { zipP = null; throw e; });
+// Nombre del arte dentro del ZIP: Campaña_Proveedor_Medida.ext (si el campo está vacío, se deja el nombre original)
+const campName = () => ($("#campNombre").value || "").trim();
+function artName(p, sup, e) {
+  const c = campName(); if (!c) return safeName(e.file.name);
+  const ext = (e.file.name.match(/\.[^.]+$/) || [""])[0].toLowerCase();
+  const med = sup.tipo === "digital" || sup.unidad === "px" ? `${sup.ancho}x${sup.alto}` : `${nf(+sup.ancho)}x${nf(+sup.alto)}${sup.unidad || "cm"}`;
+  return safeName(`${c}_${p}_${med}`) + ext;
+}
 async function zipProveedor(p, arr, btn) {
   const label = btn.textContent; btn.disabled = true; btn.textContent = "Armando ZIP…";
   try {
@@ -1545,8 +1558,9 @@ async function zipProveedor(p, arr, btn) {
     const fecha = new Date().toLocaleDateString("es-MX", { day: "numeric", month: "long", year: "numeric" });
     const lista = [`Artes para ${p}`, `Fecha: ${fecha}`, ""];
     for (const { e, r } of arr) {
-      let path = safeName(r.s.nombre) + "/" + safeName(e.file.name);
-      for (let k = 2; used.has(path); k++) path = safeName(r.s.nombre) + "/" + safeName(e.file.name).replace(/(\.[^.]+)?$/, ` (${k})$1`);
+      const base = artName(p, r.s, e);
+      let path = safeName(r.s.nombre) + "/" + base;
+      for (let k = 2; used.has(path); k++) path = safeName(r.s.nombre) + "/" + base.replace(/(\.[^.]+)?$/, `_${k}$1`);
       used.add(path); z.file(path, e.file, { binary: true });
       lista.push(`• ${path}`, `   Soporte: ${r.s.nombre} — ${r.expected}`, `   Archivo: ${r.detected}${r.v === "warn" ? "  (con observaciones)" : ""}`);
       if (e.adaptado) lista.push(`   Nota: ${e.adaptado}`);
@@ -1678,6 +1692,9 @@ $("#pickDir").onclick = () => $("#dirIn").click();
 $("#dirIn").onchange = ev => { addFiles([...ev.target.files]); ev.target.value = ""; };
 $("#genAll").onclick = ev => generateAll(ev.currentTarget);
 $("#inclWarn").onchange = () => renderEntregas();
+$("#campNombre").oninput = () => campEj();
+function campEj() { const c = campName(); $("#campEj").textContent = c ? `Ej.: ${safeName(c + "_GLOBAL_1152x675")}.jpg · Bórralo para dejar los nombres originales.` : "Se dejan los nombres originales de los artes."; }
+campEj();
 $("#exportCat").onclick = ev => saveFile(new File([JSON.stringify(S.soportes.map(({ id, ...x }) => x), null, 2)], "soportes.json", { type: "application/json" }), ev.target);
 $("#adaptAll").onclick = async ev => {
   const b = ev.target; b.disabled = true;
