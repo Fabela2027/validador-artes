@@ -819,7 +819,11 @@ function resultFor(e) {
   if (e.sel === "auto") {
     auto = true;
     // Todas las medidas que el arte cumple (un mismo arte puede servir a varios media owners)
-    matches = candidates().filter(c => compatible(e, c)).map(c => ({ s: c, ...evaluate(e, c) })).filter(m => m.v !== "err")
+    // Un arte cuenta para un soporte solo si no tiene errores y, en pantallas, si trae la medida exacta en píxeles
+    // (uno de 1152×675 no debe irse a una pantalla de 768×448 solo porque la proporción se parece).
+    const dd = fileDims(e);
+    matches = candidates().filter(c => compatible(e, c)).map(c => ({ s: c, ...evaluate(e, c) }))
+      .filter(m => m.v !== "err" && (m.s.tipo !== "digital" || (dd.w === +m.s.ancho && dd.h === +m.s.alto)))
       .sort((a, b) => (a.v === "ok" ? 0 : 1) - (b.v === "ok" ? 0 : 1) || matchScore(e, a.s) - matchScore(e, b.s));
     s = matches.length ? matches[0].s : autoPick(e);
   } else { s = findSup(e.sel); }
@@ -1057,18 +1061,41 @@ function renderEntregas() {
   const box = $("#entregas"), t = $("#entTable");
   const { groups, fuera } = entregas();
   box.hidden = !S.files.length; t.replaceChildren();
-  if (!groups.size) { t.append(el("tbody", null, el("tr", null, el("td", { class: "empty", text: "Todavía no hay artes que cumplan para armar entregas." })))); return; }
-  t.append(el("thead", null, el("tr", null, ["Proveedor", "Artes", "Soportes", "Peso", ""].map(h => el("th", { text: h })))));
+  // Con plan: medidas de cada media owner que todavía no tienen arte para entregar, y por qué
+  const faltan = new Map();
+  if (S.plan && S.files.length) {
+    const cubiertas = new Set();
+    for (const arr of groups.values()) for (const x of arr) cubiertas.add(x.r.s.id);
+    const results = S.files.map(e => ({ e, r: resultFor(e) }));
+    for (const q of S.plan.reqs) {
+      if (cubiertas.has(q.id)) continue;
+      const cand = results.filter(({ r }) => r && r.s && r.s.id === q.id);
+      let motivo = "no llegó arte de esta medida";
+      if (cand.length) {
+        const { e, r } = cand[0];
+        const err = (r.checks.find(c => c.l === "err") || r.checks.find(c => c.l === "warn") || {}).t || "";
+        const ap = adaptPlan(e, q);
+        motivo = `${e.file.name}: ${err}` + (ap ? ` Usa “${ap.label}” en el arte.` : "");
+      }
+      if (!faltan.has(q.proveedor)) faltan.set(q.proveedor, []);
+      faltan.get(q.proveedor).push(`${q.nombre}${q.ubicaciones.length ? ` (${q.ubicaciones.map(u => u.ubi).filter(Boolean).join(", ")})` : ""}: ${motivo}`);
+    }
+  }
+  const provs = [...new Set([...groups.keys(), ...faltan.keys()])];
+  if (!provs.length) { t.append(el("tbody", null, el("tr", null, el("td", { class: "empty", text: "Todavía no hay artes que cumplan para armar entregas." })))); return; }
+  t.append(el("thead", null, el("tr", null, ["Proveedor", "Artes", "Soportes", "Peso", "Pendientes", ""].map(h => el("th", { text: h })))));
   const tb = el("tbody");
-  for (const [p, arr] of groups) {
+  for (const p of provs) {
+    const arr = groups.get(p) || [], fl = faltan.get(p) || [];
     const sops = [...new Set(arr.map(x => x.r.s.nombre))];
     const mb = [...new Set(arr.map(x => x.e))].reduce((a, e) => a + e.sizeMB, 0);
-    const btn = el("button", { class: "primary", type: "button", text: "Descargar ZIP" });
-    btn.onclick = () => zipProveedor(p, arr, btn);
-    tb.append(el("tr", null, el("td", { text: p }), el("td", { class: "num", text: arr.length }), el("td", { text: sops.join(", ") }), el("td", { class: "num", text: nf(mb, mb < 1 ? 2 : 1) + " MB" }), el("td", null, btn)));
+    let btn = null;
+    if (arr.length) { btn = el("button", { class: "primary", type: "button", text: "Descargar ZIP" }); btn.onclick = () => zipProveedor(p, arr, btn); }
+    const pend = fl.length ? el("details", null, el("summary", { text: `Faltan ${fl.length} medida${fl.length > 1 ? "s" : ""}` }), el("ul", null, fl.map(x => el("li", { text: x })))) : "—";
+    tb.append(el("tr", null, el("td", { text: p }), el("td", { class: "num", text: arr.length }), el("td", { class: "wrap", text: sops.join(", ") || "—" }), el("td", { class: "num", text: arr.length ? nf(mb, mb < 1 ? 2 : 1) + " MB" : "—" }), el("td", { class: "wrap" }, pend), el("td", null, btn)));
   }
   t.append(tb);
-  if (fuera) tb.append(el("tr", null, el("td", { colspan: 5, class: "hint", text: `${fuera} arte${fuera > 1 ? "s" : ""} no se incluye${fuera > 1 ? "n" : ""} porque no cumple${fuera > 1 ? "n" : ""} o no tiene${fuera > 1 ? "n" : ""} soporte.` })));
+  if (fuera) tb.append(el("tr", null, el("td", { colspan: 6, class: "hint", text: `${fuera} arte${fuera > 1 ? "s" : ""} no se incluye${fuera > 1 ? "n" : ""} porque no cumple${fuera > 1 ? "n" : ""} o no tiene${fuera > 1 ? "n" : ""} soporte.` })));
 }
 let zipP = null;
 const jszip = () => zipP ||= loadScript("https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js").then(() => window.JSZip).catch(e => { zipP = null; throw e; });
