@@ -1,0 +1,1132 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Validador de Artes</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..100,500..800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: mesa de preprensa. Banda superior con pestañas; zona de carga con marcas de corte; resultados como pliegos en lista. */
+:root{
+  --bg:#f3f4f6; --surface:#ffffff; --sunk:#e8eaee; --ink:#151a24; --muted:#5b6474; --line:#d3d7de;
+  --accent:#c2185b; --accent-ink:#ffffff; --accent-soft:#fbe3ee;
+  --ok:#17803d; --ok-soft:#dcf3e3; --warn:#a35c00; --warn-soft:#fdefd6; --err:#c0262d; --err-soft:#fbe0e0; --info:#3b5bab; --info-soft:#e3e9f8;
+  --f-display:"Archivo","Arial Narrow",system-ui,sans-serif; --f-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif; --f-mono:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#11141a; --surface:#191d25; --sunk:#0c0f14; --ink:#e8ebf0; --muted:#9aa3b2; --line:#2c323d;
+  --accent:#f06292; --accent-ink:#1a0a11; --accent-soft:#3a1626;
+  --ok:#5fd38a; --ok-soft:#153222; --warn:#f2b250; --warn-soft:#382812; --err:#ff7b7f; --err-soft:#3b1719; --info:#8fa9f0; --info-soft:#1b2440; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#11141a; --surface:#191d25; --sunk:#0c0f14; --ink:#e8ebf0; --muted:#9aa3b2; --line:#2c323d;
+  --accent:#f06292; --accent-ink:#1a0a11; --accent-soft:#3a1626;
+  --ok:#5fd38a; --ok-soft:#153222; --warn:#f2b250; --warn-soft:#382812; --err:#ff7b7f; --err-soft:#3b1719; --info:#8fa9f0; --info-soft:#1b2440; color-scheme:dark}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.5}
+.wrap{max-width:1120px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+header.top{background:var(--surface);border-bottom:1px solid var(--line)}
+header.top .wrap{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:12px 24px;padding-block:20px 0}
+.brand h1{font-family:var(--f-display);font-stretch:80%;font-weight:800;font-size:1.9rem;letter-spacing:-.01em;line-height:1;margin:0;text-wrap:balance}
+.brand h1 span{color:var(--accent)}
+.brand p{margin:6px 0 14px;color:var(--muted);font-size:.92rem;max-width:60ch}
+nav.tabs{display:flex;gap:4px}
+nav.tabs a{font-family:var(--f-display);font-stretch:90%;font-weight:600;font-size:1rem;color:var(--muted);text-decoration:none;padding:10px 14px;border-bottom:3px solid transparent}
+nav.tabs a[aria-current="page"]{color:var(--ink);border-bottom-color:var(--accent)}
+nav.tabs a:focus-visible,button:focus-visible,select:focus-visible,input:focus-visible,textarea:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+main.wrap{padding-block:24px 64px;display:grid;gap:24px}
+.banner{font-size:.88rem;padding:10px 14px;border-radius:6px;background:var(--info-soft);color:var(--ink)}
+.banner b{color:var(--info)}
+.eyebrow{font-family:var(--f-mono);font-size:.72rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+h2{font-family:var(--f-display);font-stretch:85%;font-weight:700;font-size:1.35rem;margin:0;text-wrap:balance}
+.row{display:flex;flex-wrap:wrap;gap:12px;align-items:center}
+.spacer{flex:1}
+button,.btn{font:inherit;font-weight:500;font-size:.9rem;border:1px solid var(--line);background:var(--surface);color:var(--ink);padding:8px 14px;border-radius:6px;cursor:pointer}
+button:hover{border-color:var(--muted)}
+button.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+button.ghost{background:transparent;border-color:transparent;color:var(--muted);padding-inline:8px}
+button.ghost:hover{color:var(--ink)}
+button.danger{color:var(--err)}
+select,input,textarea{font:inherit;font-size:.92rem;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:8px 10px;min-width:0}
+textarea{width:100%;font-family:var(--f-mono);font-size:.8rem}
+label.f{display:grid;gap:4px;font-size:.8rem;color:var(--muted);min-width:0}
+label.f > span{font-weight:500}
+
+/* Zona de carga con marcas de corte */
+.drop{position:relative;background:var(--surface);border:1px dashed var(--line);border-radius:4px;padding:36px 20px;text-align:center;display:grid;gap:8px;justify-items:center;transition:background .15s,border-color .15s}
+.drop.over{background:var(--accent-soft);border-color:var(--accent)}
+.drop .mk{position:absolute;width:22px;height:22px;border-color:var(--ink);border-style:solid;border-width:0}
+.drop .mk.tl{top:-12px;left:-12px;border-right-width:1.5px;border-bottom-width:1.5px}
+.drop .mk.tr{top:-12px;right:-12px;border-left-width:1.5px;border-bottom-width:1.5px}
+.drop .mk.bl{bottom:-12px;left:-12px;border-right-width:1.5px;border-top-width:1.5px}
+.drop .mk.br{bottom:-12px;right:-12px;border-left-width:1.5px;border-top-width:1.5px}
+.drop strong{font-family:var(--f-display);font-stretch:85%;font-size:1.25rem;font-weight:700}
+.drop small{color:var(--muted)}
+.controls{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.6fr);gap:20px;align-items:start}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:18px;display:grid;gap:14px}
+.spec{font-family:var(--f-mono);font-size:.8rem;color:var(--muted);display:grid;gap:2px}
+.spec b{color:var(--ink);font-weight:500}
+
+/* Resumen */
+.summary{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.count{font-family:var(--f-mono);font-size:.82rem;padding:4px 10px;border-radius:999px;font-variant-numeric:tabular-nums}
+.c-ok{background:var(--ok-soft);color:var(--ok)} .c-warn{background:var(--warn-soft);color:var(--warn)} .c-err{background:var(--err-soft);color:var(--err)}
+
+/* Resultados */
+.results{display:grid;gap:10px}
+.res{background:var(--surface);border:1px solid var(--line);border-left:5px solid var(--line);border-radius:6px;display:grid;grid-template-columns:120px minmax(0,1fr) auto;gap:16px;padding:14px;align-items:start}
+.res.v-ok{border-left-color:var(--ok)} .res.v-warn{border-left-color:var(--warn)} .res.v-err{border-left-color:var(--err)}
+.thumb{width:120px;height:90px;background:var(--sunk);border-radius:3px;display:grid;place-items:center;overflow:hidden}
+.thumb img,.thumb canvas{max-width:100%;max-height:100%;object-fit:contain;display:block}
+.thumb .fmt{font-family:var(--f-mono);font-size:.8rem;color:var(--muted)}
+.res .name{font-weight:600;word-break:break-word}
+.meta{font-family:var(--f-mono);font-size:.78rem;color:var(--muted);font-variant-numeric:tabular-nums;display:flex;flex-wrap:wrap;gap:2px 14px}
+.cmp{display:grid;grid-template-columns:auto minmax(0,1fr);gap:2px 12px;font-family:var(--f-mono);font-size:.8rem;font-variant-numeric:tabular-nums;margin-top:6px}
+.cmp dt{color:var(--muted)} .cmp dd{margin:0}
+.checks{list-style:none;margin:8px 0 0;padding:0;display:grid;gap:4px;font-size:.88rem}
+.checks li{display:grid;grid-template-columns:18px minmax(0,1fr);gap:6px}
+.checks li::before{font-family:var(--f-mono);font-weight:600;text-align:center}
+.checks .l-ok::before{content:"✓";color:var(--ok)} .checks .l-warn::before{content:"!";color:var(--warn)} .checks .l-err::before{content:"✕";color:var(--err)} .checks .l-info::before{content:"i";color:var(--info)}
+.side{display:grid;gap:8px;justify-items:end;min-width:0}
+.pill{font-family:var(--f-display);font-stretch:85%;font-weight:700;font-size:.95rem;padding:4px 12px;border-radius:4px;white-space:nowrap}
+.p-ok{background:var(--ok-soft);color:var(--ok)} .p-warn{background:var(--warn-soft);color:var(--warn)} .p-err{background:var(--err-soft);color:var(--err)} .p-wait{background:var(--sunk);color:var(--muted)}
+.side select{max-width:240px;font-size:.82rem}
+.empty{color:var(--muted);text-align:center;padding:24px;border:1px dashed var(--line);border-radius:6px;font-size:.9rem}
+
+/* Catálogo */
+.tablewrap{overflow-x:auto;background:var(--surface);border:1px solid var(--line);border-radius:8px}
+table{border-collapse:collapse;width:100%;font-size:.86rem}
+th,td{padding:9px 12px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top;white-space:nowrap}
+th{font-family:var(--f-mono);font-size:.7rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:500;background:var(--sunk)}
+td.num{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+tr.grp td{background:var(--bg);font-family:var(--f-display);font-stretch:85%;font-weight:700;font-size:.98rem}
+.tag{font-family:var(--f-mono);font-size:.7rem;padding:1px 6px;border-radius:3px;background:var(--sunk);color:var(--muted)}
+.tag.ex{background:var(--warn-soft);color:var(--warn)}
+.form{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
+.form .wide{grid-column:1/-1}
+.form .half{grid-column:span 2}
+.hint{font-size:.82rem;color:var(--muted);margin:0}
+tr.falta td{color:var(--muted)}
+td.wrap{white-space:normal;min-width:180px;max-width:340px}
+details summary{cursor:pointer;color:var(--muted);font-size:.8rem}
+details ul{margin:4px 0 0;padding-left:16px;font-size:.8rem;color:var(--muted)}
+.tag.ad{background:var(--info-soft);color:var(--info)}
+.side .hint{max-width:240px;text-align:right;font-size:.76rem}
+@media (max-width:760px){.side .hint{text-align:left}}
+.toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:6px;font-size:.88rem;z-index:20}
+@media (max-width:760px){
+  .controls{grid-template-columns:1fr}
+  .res{grid-template-columns:80px minmax(0,1fr)}
+  .thumb{width:80px;height:64px}
+  .side{grid-column:1/-1;justify-items:start;grid-auto-flow:row}
+  .form .half{grid-column:1/-1}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <div class="brand">
+      <h1>Validador de <span>Artes</span></h1>
+      <p>Sube los artes de la campaña y compáralos contra las medidas, resolución y formato que pide cada proveedor.</p>
+    </div>
+    <nav class="tabs" aria-label="Secciones">
+      <a href="#revisar" id="tab-revisar">Revisar artes</a>
+      <a href="#soportes" id="tab-soportes">Soportes de proveedores</a>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+  <div class="banner" id="storeNote" hidden></div>
+
+  <!-- ============ REVISAR ============ -->
+  <section id="view-revisar" class="grid" style="display:grid;gap:24px">
+    <div class="controls">
+      <div class="panel">
+        <div class="eyebrow">Paso 1</div>
+        <label class="f"><span>Revisar contra</span>
+          <select id="globalSel"></select>
+        </label>
+        <div class="spec" id="globalSpec"></div>
+        <p class="hint">En automático, cada archivo se compara con el soporte cuya proporción se le parece más. Si subes el plan de campaña, se compara con las medidas del plan. Puedes cambiarlo por archivo.</p>
+        <div class="row"><button type="button" id="pickPlan">Subir plan de campaña</button><button type="button" class="ghost" id="clearPlan" hidden>Quitar plan</button></div>
+        <input type="file" id="planIn" hidden accept=".xlsx,.xls,.csv">
+      </div>
+      <div>
+        <div class="drop" id="drop">
+          <i class="mk tl"></i><i class="mk tr"></i><i class="mk bl"></i><i class="mk br"></i>
+          <div class="eyebrow">Paso 2</div>
+          <strong>Arrastra aquí los artes</strong>
+          <small>Archivos sueltos, la carpeta completa o el ZIP que mandó la agencia. JPG, PNG, TIFF, PSD, PDF, AI, EPS, MP4, MOV o WEBM. Los archivos no salen de tu equipo.</small>
+          <div class="row" style="justify-content:center"><button class="primary" id="pick" type="button">Elegir archivos</button><button id="pickDir" type="button">Elegir carpeta</button></div>
+          <input type="file" id="dirIn" hidden webkitdirectory multiple>
+          <input type="file" id="fileIn" multiple hidden accept=".zip,.jpg,.jpeg,.png,.tif,.tiff,.psd,.pdf,.ai,.eps,.gif,.webp,.mp4,.mov,.webm,.m4v,image/*,video/*,application/pdf,application/zip">
+        </div>
+      </div>
+    </div>
+
+    <div class="panel" id="planBox" hidden>
+      <div class="row"><div><div class="eyebrow" id="planEyebrow">Plan de campaña</div><h2 id="planTitle"></h2></div><div class="spacer"></div><div class="summary" id="planSummary"></div></div>
+      <p class="hint" id="planHint"></p>
+      <div class="tablewrap"><table id="planTable"></table></div>
+    </div>
+
+    <div class="row">
+      <h2>Resultados</h2>
+      <div class="summary" id="summary"></div>
+      <div class="spacer"></div>
+      <button id="adaptAll" type="button" hidden>Adaptar todos</button>
+      <button id="copyReport" type="button">Copiar reporte</button>
+      <button class="ghost" id="clearFiles" type="button">Limpiar</button>
+    </div>
+    <div class="results" id="results"></div>
+
+    <div class="panel" id="entregas" hidden>
+      <div class="row"><div><div class="eyebrow">Paso 3</div><h2>Entregas por proveedor</h2></div><div class="spacer"></div>
+        <label class="row" style="gap:6px;font-size:.88rem"><input type="checkbox" id="inclWarn" checked> Incluir los que dicen “Revisar”</label></div>
+      <p class="hint">Cada ZIP lleva los artes de ese proveedor en una carpeta por soporte, más una lista con lo que contiene. Súbelo a tu OneDrive, Drive o WeTransfer y manda el link. Los que no cumplen no se incluyen.</p>
+      <div class="tablewrap"><table id="entTable"></table></div>
+    </div>
+  </section>
+
+  <!-- ============ SOPORTES ============ -->
+  <section id="view-soportes" hidden style="gap:20px">
+    <div class="row">
+      <h2>Catálogo de soportes</h2>
+      <div class="spacer"></div>
+      <button class="ghost danger" id="delExamples" type="button" hidden>Borrar ejemplos</button>
+      <button class="ghost" id="exportCat" type="button" hidden>Descargar catálogo</button>
+      <button id="toggleImport" type="button">Pegar desde Excel</button>
+      <button class="primary" id="newSup" type="button">Agregar soporte</button>
+    </div>
+
+    <div class="panel" id="importPanel" hidden>
+      <div class="eyebrow">Importar varios</div>
+      <p class="hint">Copia las filas de tu hoja de cálculo y pégalas aquí, una fila por soporte, con las columnas en este orden: <b>Proveedor, Soporte, Tipo (impreso/digital), Ancho, Alto, Unidad (cm/m/mm/in/px), Escala %, Sangrado, DPI mínimo, Formatos, Color (CMYK/RGB), Peso máx. MB, Duración s, Notas</b>. Las columnas vacías se toman como “sin requisito”.</p>
+      <textarea id="importText" rows="6" placeholder="Proveedor Ejemplo	Espectacular	impreso	12.9	7.2	m	10	0.1	72	PDF, TIFF	CMYK			"></textarea>
+      <div class="row"><span class="hint" id="importInfo"></span><div class="spacer"></div><button class="ghost" id="cancelImport" type="button">Cancelar</button><button class="primary" id="doImport" type="button">Importar</button></div>
+    </div>
+
+    <form class="panel" id="supForm" hidden>
+      <div class="row"><div class="eyebrow" id="formTitle">Nuevo soporte</div></div>
+      <div class="form">
+        <label class="f half"><span>Proveedor</span><input id="s-proveedor" required list="provList" autocomplete="off"></label>
+        <datalist id="provList"></datalist>
+        <label class="f half"><span>Soporte</span><input id="s-nombre" required placeholder="Espectacular, parabús, pantalla…"></label>
+        <label class="f"><span>Tipo</span><select id="s-tipo"><option value="impreso">Impreso</option><option value="digital">Pantalla digital</option></select></label>
+        <label class="f"><span>Ancho</span><input id="s-ancho" type="number" step="any" min="0" required></label>
+        <label class="f"><span>Alto</span><input id="s-alto" type="number" step="any" min="0" required></label>
+        <label class="f"><span>Unidad</span><select id="s-unidad"><option>cm</option><option>m</option><option>mm</option><option value="in">pulgadas</option><option>px</option></select></label>
+        <label class="f only-print"><span>Escala del archivo %</span><input id="s-escala" type="number" step="any" min="1" placeholder="100"></label>
+        <label class="f only-print"><span>Sangrado por lado</span><input id="s-sangrado" type="number" step="any" min="0" placeholder="0"></label>
+        <label class="f only-print"><span>DPI mínimo (en el archivo)</span><input id="s-dpiMin" type="number" step="any" min="0"></label>
+        <label class="f only-print"><span>Modo de color</span><select id="s-color"><option value="">Cualquiera</option><option>CMYK</option><option>RGB</option></select></label>
+        <label class="f"><span>Formatos aceptados</span><input id="s-formatos" placeholder="PDF, TIFF, JPG"></label>
+        <label class="f"><span>Peso máximo MB</span><input id="s-pesoMaxMB" type="number" step="any" min="0"></label>
+        <label class="f only-digital"><span>Duración del spot (s)</span><input id="s-duracionSeg" type="number" step="any" min="0"></label>
+        <label class="f"><span>Tolerancia %</span><input id="s-tolerancia" type="number" step="any" min="0" placeholder="1"></label>
+        <label class="f wide"><span>Notas</span><input id="s-notas" placeholder="Ej. dejar zona de seguridad de 10 cm, entregar en CMYK FOGRA39"></label>
+      </div>
+      <p class="hint only-print">Escala: muchos proveedores piden el archivo de espectacular al 10 % del tamaño real. El DPI mínimo se mide en el archivo a esa escala. El sangrado se escribe a tamaño real, en la misma unidad.</p>
+      <div class="row"><div class="spacer"></div><button class="ghost" type="button" id="cancelSup">Cancelar</button><button class="primary" type="submit" id="saveSup">Guardar soporte</button></div>
+    </form>
+
+    <div class="tablewrap"><table id="supTable"></table></div>
+  </section>
+</main>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+"use strict";
+/* ---------------- utilidades ---------------- */
+const $ = (s, r = document) => r.querySelector(s);
+function el(tag, attrs, ...kids) {
+  const e = document.createElement(tag);
+  if (attrs) for (const [k, v] of Object.entries(attrs)) {
+    if (v == null || v === false) continue;
+    if (k === "class") e.className = v; else if (k === "text") e.textContent = v;
+    else if (k.startsWith("on")) e.addEventListener(k.slice(2), v); else e.setAttribute(k, v === true ? "" : v);
+  }
+  for (const k of kids.flat()) if (k != null) e.append(k.nodeType ? k : document.createTextNode(String(k)));
+  return e;
+}
+const nf = (v, d = 1) => (Math.round(v * 10 ** d) / 10 ** d).toLocaleString("es-MX", { maximumFractionDigits: d });
+const toCm = (v, u) => { v = +v || 0; return u === "m" ? v * 100 : u === "mm" ? v / 10 : u === "in" ? v * 2.54 : v; };
+const near = (a, b, tol) => Math.abs(a - b) <= Math.abs(b) * tol / 100 + 1e-9;
+const pct = (a, b) => Math.abs(a / b - 1) * 100;
+const lsGet = k => { try { return localStorage.getItem(k); } catch { return null; } };
+const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
+let toastT; function toast(msg) { const t = $("#toast"); t.textContent = msg; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => t.hidden = true, 2600); }
+const FMT_ALIAS = { JPEG: "JPG", TIF: "TIFF", M4V: "MP4" };
+const normFmt = f => { f = String(f || "").trim().toUpperCase().replace(/^\./, ""); return FMT_ALIAS[f] || f; };
+const fmtList = s => String(s || "").split(/[,;\/\s]+/).map(normFmt).filter(Boolean);
+function orient(w, h) { return Math.abs(w - h) / Math.max(w, h) < 0.01 ? "cuadrado" : w > h ? "horizontal" : "vertical"; }
+
+/* ---------------- almacenamiento de soportes ---------------- */
+const S = { soportes: [], files: [], global: lsGet("va.global") || "auto", editing: null };
+const store = { db: null, mode: "loading" };
+function supLabel(s) { return `${s.proveedor} · ${s.nombre}`; }
+function sortSups(a) { return a.slice().sort((x, y) => (x.proveedor || "").localeCompare(y.proveedor || "", "es") || (x.nombre || "").localeCompare(y.nombre || "", "es")); }
+function setSoportes(list) { S.soportes = sortSups(list); renderAll(); }
+function localLoad() { try { return JSON.parse(lsGet("va.soportes") || "[]"); } catch { return []; } }
+function localSave() { lsSet("va.soportes", JSON.stringify(S.soportes)); }
+async function saveSup(data, id) {
+  if (store.mode === "db") {
+    if (id) await store.db.collection("soportes").doc(id).set(data);
+    else await store.db.collection("soportes").add(data);
+  } else {
+    if (id) S.soportes = S.soportes.map(s => s.id === id ? { ...data, id } : s);
+    else S.soportes.push({ ...data, id: "l" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6) });
+    localSave(); setSoportes(S.soportes);
+  }
+}
+async function delSup(id) {
+  if (store.mode === "db") await store.db.collection("soportes").doc(id).delete();
+  else { S.soportes = S.soportes.filter(s => s.id !== id); localSave(); setSoportes(S.soportes); }
+}
+function note(html) { const n = $("#storeNote"); n.replaceChildren(...html); n.hidden = !html.length; }
+(async function initStore() {
+  note([el("b", { text: "Cargando catálogo… " }), "conectando con el catálogo compartido de soportes."]);
+  let db = null;
+  await null; // deja que el resto del script se defina antes de pintar
+  try { db = window.claude && window.claude.use ? await window.claude.use("db") : null; } catch { db = null; }
+  if (!db) {
+    store.mode = "local";
+    let list = lsGet("va.soportes") ? localLoad() : null, base = false;
+    if (!list) {
+      // Versión web: el catálogo del equipo vive en soportes.json junto a la página
+      try { const r = await fetch("soportes.json", { cache: "no-cache" }); if (r.ok) { list = (await r.json()).map((x, k) => ({ ...x, id: x.id || "base-" + k })); base = true; } } catch {}
+    }
+    setSoportes(list || []);
+    note(base
+      ? [el("b", { text: "Catálogo del equipo. " }), "Los cambios que hagas se guardan en este navegador. Para que todos los vean, usa “Descargar catálogo” y súbelo al repositorio."]
+      : [el("b", { text: "Catálogo local. " }), "Los soportes que agregues se guardan en este navegador. Para compartirlos, usa “Descargar catálogo”."]);
+    $("#exportCat").hidden = false;
+    return;
+  }
+  store.db = db; store.mode = "db";
+  const timer = setTimeout(() => note([el("b", { text: "Sin conexión al catálogo. " }), "Todavía no responde; lo que ves puede no estar al día."]), 10000);
+  db.collection("soportes").onSnapshot(snap => {
+    if (!snap.metadata.fromCache) { clearTimeout(timer); note([]); }
+    setSoportes(snap.docs.map(d => ({ ...d.data(), id: d.id })));
+  }, err => { clearTimeout(timer); note([el("b", { text: "No se pudo leer el catálogo. " }), String(err && err.message || err)]); });
+})();
+
+/* ---------------- lectura de archivos ---------------- */
+const str = (dv, o, n) => { let s = ""; for (let i = 0; i < n && o + i < dv.byteLength; i++) s += String.fromCharCode(dv.getUint8(o + i)); return s; };
+function parseTIFF(dv, b = 0) {
+  const bo = dv.getUint16(b); const le = bo === 0x4949; if (!le && bo !== 0x4D4D) return null;
+  const u16 = o => dv.getUint16(b + o, le), u32 = o => dv.getUint32(b + o, le);
+  if (u16(2) !== 42) return null;
+  const ifd = u32(4), n = u16(ifd), r = {}; let unit = 2;
+  for (let i = 0; i < n; i++) {
+    const e = ifd + 2 + i * 12, tag = u16(e), type = u16(e + 2);
+    const v = () => type === 3 ? u16(e + 8) : u32(e + 8);
+    const rat = () => { const o = u32(e + 8); const d = u32(o + 4); return d ? u32(o) / d : 0; };
+    if (tag === 256) r.w = v(); else if (tag === 257) r.h = v();
+    else if (tag === 282) r.dpiX = rat(); else if (tag === 283) r.dpiY = rat();
+    else if (tag === 296) unit = v(); else if (tag === 262) r.photo = v(); else if (tag === 277) r.spp = v();
+  }
+  if (unit === 3) { r.dpiX *= 2.54; r.dpiY *= 2.54; } else if (unit === 1) { r.dpiX = r.dpiY = 0; }
+  if (r.photo === 5) r.color = "CMYK"; else if (r.photo === 2) r.color = "RGB"; else if (r.photo === 0 || r.photo === 1) r.color = "Escala de grises";
+  return r;
+}
+function parseJPEG(dv) {
+  if (dv.getUint16(0) !== 0xFFD8) return null;
+  let o = 2; const r = {};
+  while (o + 4 <= dv.byteLength) {
+    if (dv.getUint8(o) !== 0xFF) { o++; continue; }
+    const m = dv.getUint8(o + 1);
+    if (m === 0xFF) { o++; continue; }
+    if (m === 0xD8 || m === 0x01 || (m >= 0xD0 && m <= 0xD7)) { o += 2; continue; }
+    if (m === 0xD9 || m === 0xDA) break;
+    const len = dv.getUint16(o + 2), s = o + 4;
+    try {
+      if (m === 0xE0 && str(dv, s, 4) === "JFIF") {
+        const u = dv.getUint8(s + 7), x = dv.getUint16(s + 8), y = dv.getUint16(s + 10);
+        if (u === 1) { r.dpiX = x; r.dpiY = y; } else if (u === 2) { r.dpiX = x * 2.54; r.dpiY = y * 2.54; }
+      } else if (m === 0xE1 && str(dv, s, 4) === "Exif" && !r.exif) {
+        const t = parseTIFF(new DataView(dv.buffer, dv.byteOffset + s + 6, Math.min(len - 8, dv.byteLength - s - 6)));
+        if (t && t.dpiX) r.exif = t;
+      } else if (m >= 0xC0 && m <= 0xCF && m !== 0xC4 && m !== 0xC8 && m !== 0xCC) {
+        r.h = dv.getUint16(s + 1); r.w = dv.getUint16(s + 3); r.comps = dv.getUint8(s + 5);
+      }
+    } catch {}
+    o += 2 + len;
+  }
+  if (r.exif) { r.dpiX = r.exif.dpiX; r.dpiY = r.exif.dpiY || r.exif.dpiX; }
+  r.color = r.comps === 4 ? "CMYK" : r.comps === 1 ? "Escala de grises" : r.comps === 3 ? "RGB" : null;
+  return r.w ? r : null;
+}
+function parsePNG(dv) {
+  if (dv.getUint32(0) !== 0x89504E47) return null;
+  const r = { w: dv.getUint32(16), h: dv.getUint32(20), color: "RGB" };
+  let o = 8;
+  while (o + 12 <= dv.byteLength) {
+    const l = dv.getUint32(o), t = str(dv, o + 4, 4);
+    if (t === "pHYs" && dv.getUint8(o + 16) === 1) { r.dpiX = dv.getUint32(o + 8) * 0.0254; r.dpiY = dv.getUint32(o + 12) * 0.0254; }
+    if (t === "IDAT" || t === "IEND") break;
+    o += 12 + l;
+  }
+  return r;
+}
+function parsePSD(dv) {
+  if (str(dv, 0, 4) !== "8BPS") return null;
+  const r = { h: dv.getUint32(14), w: dv.getUint32(18) };
+  const mode = dv.getUint16(24); r.color = { 1: "Escala de grises", 3: "RGB", 4: "CMYK" }[mode] || null;
+  try {
+    let o = 26 + 4 + dv.getUint32(26); const irLen = dv.getUint32(o); o += 4; const end = o + irLen;
+    while (o + 12 < end && o + 12 < dv.byteLength) {
+      if (str(dv, o, 4) !== "8BIM") break;
+      const id = dv.getUint16(o + 4); let nl = dv.getUint8(o + 6) + 1; if (nl % 2) nl++;
+      const p = o + 6 + nl, sz = dv.getUint32(p), d = p + 4;
+      if (id === 0x03ED) { r.dpiX = dv.getUint32(d) / 65536; r.dpiY = dv.getUint32(d + 8) / 65536; break; }
+      o = d + sz + (sz % 2);
+    }
+  } catch {}
+  return r;
+}
+function parseEPS(dv) {
+  let off = 0, len = dv.byteLength;
+  if (dv.getUint32(0) === 0xC5D0D3C6) { off = dv.getUint32(4, true); len = Math.min(dv.getUint32(8, true), dv.byteLength - off); }
+  const txt = str(dv, off, Math.min(len, 200000));
+  if (!txt.startsWith("%!")) return null;
+  const m = txt.match(/%%HiResBoundingBox:\s*([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)/) || txt.match(/%%BoundingBox:\s*([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)/);
+  if (!m) return { vector: true };
+  const [x0, y0, x1, y1] = m.slice(1).map(Number);
+  return { vector: true, wPt: x1 - x0, hPt: y1 - y0 };
+}
+/* Respaldo sin pdf.js: lee MediaBox/TrimBox del texto del PDF cuando no están comprimidos. */
+function pdfBoxes(txt) {
+  const box = k => { const m = txt.match(new RegExp("/" + k + "\\s*\\[\\s*([-\\d.]+)\\s+([-\\d.]+)\\s+([-\\d.]+)\\s+([-\\d.]+)\\s*\\]")); return m && m.slice(1).map(Number); };
+  const b = box("CropBox") || box("MediaBox"); if (!b) return null;
+  let w = b[2] - b[0], h = b[3] - b[1];
+  const rot = txt.match(/\/Rotate\s+(-?\d+)/); if (rot && Math.abs(+rot[1]) % 180 === 90) [w, h] = [h, w];
+  const pages = (txt.match(/\/Type\s*\/Page(?!s)/g) || []).length || 1;
+  return { vector: true, wPt: w, hPt: h, pages };
+}
+let pdfjsP = null;
+function loadScript(src) { return new Promise((res, rej) => { const s = document.createElement("script"); s.src = src; s.onload = res; s.onerror = () => rej(new Error("No se pudo cargar " + src)); document.head.append(s); }); }
+function pdfjs() {
+  if (!pdfjsP) {
+    const base = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/";
+    pdfjsP = loadScript(base + "pdf.min.js").then(() => loadScript(base + "pdf.worker.min.js")).then(() => {
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc = base + "pdf.worker.min.js"; return window.pdfjsLib;
+    });
+    pdfjsP.catch(() => { pdfjsP = null; });
+  }
+  return pdfjsP;
+}
+async function readPDF(file, entry) {
+  const lib = await pdfjs();
+  const doc = await lib.getDocument({ data: new Uint8Array(await file.arrayBuffer()), isEvalSupported: false }).promise;
+  const page = await doc.getPage(1);
+  const vp = page.getViewport({ scale: 1 });
+  const r = { vector: true, wPt: vp.width, hPt: vp.height, pages: doc.numPages };
+  try {
+    const sc = Math.min(240 / vp.width, 180 / vp.height);
+    const v2 = page.getViewport({ scale: sc });
+    const c = document.createElement("canvas"); c.width = Math.ceil(v2.width); c.height = Math.ceil(v2.height);
+    await page.render({ canvasContext: c.getContext("2d"), viewport: v2 }).promise;
+    entry.thumb = c.toDataURL("image/png");
+  } catch {}
+  return r;
+}
+function readMedia(file, entry, kind) {
+  return new Promise((res, rej) => {
+    const url = URL.createObjectURL(file);
+    if (kind === "video") {
+      const v = document.createElement("video"); v.muted = true; v.preload = "metadata"; v.playsInline = true;
+      v.onloadedmetadata = () => {
+        const r = { w: v.videoWidth, h: v.videoHeight, dur: v.duration, color: "RGB" };
+        v.onseeked = () => { try { const c = document.createElement("canvas"); const s = Math.min(240 / r.w, 180 / r.h); c.width = r.w * s; c.height = r.h * s; c.getContext("2d").drawImage(v, 0, 0, c.width, c.height); entry.thumb = c.toDataURL("image/jpeg", .8); } catch {} res(r); renderResults(); };
+        try { v.currentTime = Math.min(0.5, (v.duration || 1) / 2); } catch { res(r); }
+        setTimeout(() => res(r), 3000);
+      };
+      v.onerror = () => rej(new Error("El navegador no puede leer este video (prueba MP4 H.264 o WEBM)."));
+      v.src = url;
+    } else {
+      const img = new Image();
+      img.onload = () => { entry.thumb = url; res({ w: img.naturalWidth, h: img.naturalHeight }); };
+      img.onerror = () => { URL.revokeObjectURL(url); res(null); };
+      img.src = url;
+    }
+  });
+}
+async function inspect(entry) {
+  const f = entry.file, ext = entry.ext;
+  let dv = new DataView(await f.slice(0, Math.min(f.size, 4 * 1024 * 1024)).arrayBuffer());
+  const head = str(dv, 0, 5);
+  if (head === "%PDF-") {
+    entry.kind = "vector";
+    try { return await readPDF(f, entry); }
+    catch (err) { const r = pdfBoxes(str(dv, 0, dv.byteLength)); if (r) return r; throw new Error("No se pudo leer el PDF: " + (err.message || err)); }
+  }
+  if (/^(MP4|MOV|WEBM)$/.test(ext) || (f.type || "").startsWith("video/")) { entry.kind = "video"; return readMedia(f, entry, "video"); }
+  const eps = (head.startsWith("%!") || dv.getUint32(0) === 0xC5D0D3C6) ? parseEPS(dv) : null;
+  if (eps) { entry.kind = "vector"; return eps; }
+  if (ext === "AI") throw new Error("Este .ai no se guardó con compatibilidad PDF. Pide que lo exporten como PDF.");
+  entry.kind = "image";
+  let r = parseJPEG(dv) || parsePNG(dv) || parsePSD(dv);
+  if (!r) { try { r = parseTIFF(dv); } catch (e) { if (e instanceof RangeError) { dv = new DataView(await f.arrayBuffer()); r = parseTIFF(dv); } else throw e; } }
+  if (/^(JPG|PNG|GIF|WEBP)$/.test(ext) || (r && r.w && !/^(TIFF|PSD)$/.test(ext))) {
+    const m = await readMedia(f, entry, "image");
+    if (!r || !r.w) r = { ...(r || {}), ...(m || {}), color: (r && r.color) || "RGB" };
+  }
+  if (!r || !r.w) throw new Error("No se reconoció el formato del archivo.");
+  return r;
+}
+let seq = 0;
+function track(entry) { inspect(entry).then(r => { entry.info = r || {}; entry.status = "listo"; }).catch(e => { entry.status = "error"; entry.err = e.message || String(e); }).finally(renderResults); }
+const SKIP = /(^|\/)(\.|__MACOSX\/|Thumbs\.db$|desktop\.ini$)/i;
+const OK_EXT = /^(JPG|PNG|TIFF|PSD|PDF|AI|EPS|GIF|WEBP|MP4|MOV|WEBM)$/;
+const MIME = { JPG: "image/jpeg", PNG: "image/png", GIF: "image/gif", WEBP: "image/webp", TIFF: "image/tiff", PDF: "application/pdf", MP4: "video/mp4", MOV: "video/quicktime", WEBM: "video/webm" };
+async function expandZip(zf) {
+  toast(`Abriendo ${zf.name}…`);
+  const JSZip = await jszip();
+  const z = await JSZip.loadAsync(zf);
+  const out = [];
+  for (const en of Object.values(z.files)) {
+    if (en.dir) continue;
+    const base = en.name.split("/").pop();
+    const ext = normFmt((base.match(/\.([^.]+)$/) || [, ""])[1]);
+    if (SKIP.test(en.name) || !OK_EXT.test(ext)) continue;
+    const blob = await en.async("blob");
+    const f = new File([blob], base, { type: MIME[ext] || "", lastModified: en.date ? en.date.getTime() : Date.now() });
+    f.relPath = zf.name.replace(/\.zip$/i, "") + "/" + en.name;
+    out.push(f);
+  }
+  if (!out.length) toast(`${zf.name} no trae artes que pueda revisar`);
+  return out;
+}
+function addFiles(list) {
+  const zips = [...list].filter(f => /\.zip$/i.test(f.name));
+  if (zips.length) {
+    list = [...list].filter(f => !zips.includes(f));
+    for (const zf of zips) expandZip(zf).then(addFiles).catch(e => toast(`No se pudo abrir ${zf.name}: ${e.message || e}`));
+  }
+  for (const file of list) {
+    const rel = file.relPath || file.webkitRelativePath || file.name;
+    if (SKIP.test(rel)) continue;
+    if ((file.relPath || file.webkitRelativePath) && !OK_EXT.test(normFmt((file.name.match(/\.([^.]+)$/) || [, ""])[1]))) continue;
+    const ext = normFmt((file.name.match(/\.([^.]+)$/) || [, ""])[1]);
+    const entry = { id: ++seq, file, name: rel, ext, sizeMB: file.size / 1048576, status: "leyendo", info: null, sel: S.global };
+    S.files.push(entry);
+    track(entry);
+  }
+  renderResults();
+}
+
+/* ---------------- plan de campaña ---------------- */
+S.plan = null;
+const allSups = () => S.plan ? S.soportes.concat(S.plan.reqs) : S.soportes;
+const findSup = id => allSups().find(x => x.id === id) || null;
+let xlsxP = null;
+const xlsxLib = () => xlsxP ||= loadScript("https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js").then(() => window.XLSX).catch(e => { xlsxP = null; throw e; });
+function parseMedida(txt) {
+  const m = String(txt || "").replace(/,/g, ".").match(/(\d+(?:\.\d+)?)\s*[xX×*]\s*(\d+(?:\.\d+)?)\s*(px|cm|mm|m|pulg|in)?/i);
+  if (!m) return null;
+  const w = +m[1], h = +m[2]; let u = (m[3] || "").toLowerCase();
+  if (u === "pulg") u = "in";
+  if (!u) u = (Number.isInteger(w) && Number.isInteger(h) && Math.max(w, h) >= 100) ? "px" : "cm";
+  return { w, h, u };
+}
+function readPlanRows(rows, fileName) {
+  let hi = -1;
+  for (let i = 0; i < Math.min(rows.length, 25); i++) if ((rows[i] || []).some(c => /MEDIDA/i.test(String(c)))) { hi = i; break; }
+  if (hi < 0) throw new Error("No encontré una columna llamada “Medidas” en el plan.");
+  const H = rows[hi].map(c => String(c || "").trim());
+  const col = re => H.findIndex(h => re.test(h));
+  const c = { med: col(/MEDIDA/i), prov: col(/MEDIA\s*OWNER|PROVEEDOR/i), ubi: col(/UBICACI/i), ciudad: col(/CIUDAD|PLAZA/i), venue: col(/VENUE|TIPO/i), fmt: col(/FORMATO/i), dur: col(/DURACI/i), camp: col(/CAMPA/i) };
+  const byKey = new Map(); let n = 0, sinMedida = 0, nombre = "";
+  for (let i = hi + 1; i < rows.length; i++) {
+    const r = rows[i] || []; const get = k => c[k] >= 0 ? String(r[c[k]] ?? "").trim() : "";
+    const med = parseMedida(get("med"));
+    if (!med) { if (get("prov") || get("ubi")) sinMedida++; continue; }
+    n++; if (!nombre && get("camp")) nombre = get("camp");
+    const prov = get("prov") || "Sin media owner", fmts = fmtList(get("fmt")).filter((v, k, a) => a.indexOf(v) === k).join(", ");
+    const dur = parseFloat(get("dur").replace(",", ".")) || null;
+    const key = [prov.toLowerCase(), med.w, med.h, med.u, fmts, dur].join("|");
+    if (!byKey.has(key)) byKey.set(key, { id: "plan-" + byKey.size, plan: true, proveedor: prov, nombre: `${med.w}×${med.h} ${med.u}`, tipo: med.u === "px" ? "digital" : "impreso", ancho: med.w, alto: med.h, unidad: med.u, escala: 100, formatos: fmts, duracionSeg: dur, tolerancia: 1, notas: "", ubicaciones: [] });
+    byKey.get(key).ubicaciones.push({ ubi: get("ubi"), ciudad: get("ciudad"), venue: get("venue") });
+  }
+  if (!n) throw new Error("El plan no tiene filas con medidas que pueda leer.");
+  const reqs = [...byKey.values()].sort((a, b) => a.proveedor.localeCompare(b.proveedor, "es") || b.ancho * b.alto - a.ancho * a.alto);
+  return { nombre: nombre || fileName.replace(/\.[^.]+$/, ""), archivo: fileName, filas: n, sinMedida, reqs };
+}
+async function loadPlan(file) {
+  const btn = $("#pickPlan"); btn.disabled = true; btn.textContent = "Leyendo plan…";
+  try {
+    const X = await xlsxLib();
+    const wb = X.read(new Uint8Array(await file.arrayBuffer()), { type: "array" });
+    let plan = null, lastErr;
+    for (const name of wb.SheetNames) {
+      try { plan = readPlanRows(X.utils.sheet_to_json(wb.Sheets[name], { header: 1, raw: false, defval: "" }), file.name); plan.hoja = name; break; } catch (e) { lastErr = e; }
+    }
+    if (!plan) throw lastErr;
+    setPlan(plan);
+    try { lsSet("va.plan", JSON.stringify(plan)); } catch {}
+    toast(`Plan cargado: ${plan.filas} ubicaciones, ${plan.reqs.length} medidas distintas`);
+  } catch (e) { toast("No se pudo leer el plan: " + (e.message || e)); }
+  finally { btn.disabled = false; btn.textContent = "Subir otro plan"; }
+}
+function setPlan(plan) {
+  S.plan = plan; S.global = plan ? "auto" : S.global;
+  if (plan) S.files.forEach(f => { if (!findSup(f.sel)) f.sel = "auto"; });
+  else S.files.forEach(f => { if (String(f.sel).startsWith("plan-")) f.sel = "auto"; });
+  $("#clearPlan").hidden = !plan; $("#pickPlan").textContent = plan ? "Subir otro plan" : "Subir plan de campaña";
+  renderAll();
+}
+function renderPlan() {
+  const box = $("#planBox"); box.hidden = !S.plan; if (!S.plan) return;
+  const P = S.plan;
+  $("#planTitle").textContent = P.nombre;
+  $("#planEyebrow").textContent = `Plan de campaña · ${P.archivo}`;
+  const cover = new Map(P.reqs.map(r => [r.id, { ok: [], warn: [] }]));
+  for (const e of S.files) { const r = resultFor(e); if (!r || !r.s) continue; for (const m of r.matches || []) { const c = cover.get(m.s.id); if (c) c[m.v === "ok" ? "ok" : "warn"].push(e); } }
+  let cub = 0, obs = 0, falta = 0; const ubiFalta = [];
+  for (const q of P.reqs) { const c = cover.get(q.id); if (c.ok.length) cub += q.ubicaciones.length; else if (c.warn.length) obs += q.ubicaciones.length; else { falta += q.ubicaciones.length; ubiFalta.push(q); } }
+  const sm = $("#planSummary"); sm.replaceChildren();
+  if (cub) sm.append(el("span", { class: "count c-ok", text: `${cub} ubicaciones con arte` }));
+  if (obs) sm.append(el("span", { class: "count c-warn", text: `${obs} con observaciones` }));
+  if (falta) sm.append(el("span", { class: "count c-err", text: `${falta} sin arte` }));
+  $("#planHint").textContent = `${P.filas} ubicaciones agrupadas en ${P.reqs.length} medidas por media owner.` + (P.sinMedida ? ` ${P.sinMedida} filas no traen medida y no se revisan.` : "") + (S.files.length ? "" : " Sube los artes para ver cuáles medidas ya tienen arte.");
+  const t = $("#planTable"); t.replaceChildren();
+  t.append(el("thead", null, el("tr", null, ["Media owner", "Medida", "Formatos", "Duración", "Ubicaciones", "Artes", ""].map(h => el("th", { text: h })))));
+  const tb = el("tbody");
+  for (const q of P.reqs) {
+    const c = cover.get(q.id), st = c.ok.length ? "ok" : c.warn.length ? "warn" : "err";
+    const ciudades = [...new Set(q.ubicaciones.map(u => u.ciudad).filter(Boolean))].join(", ");
+    const det = el("details", null, el("summary", { text: `${q.ubicaciones.length} ${q.ubicaciones.length === 1 ? "ubicación" : "ubicaciones"}${ciudades ? " · " + ciudades : ""}` }), el("ul", null, q.ubicaciones.map(u => el("li", { text: [u.ubi, u.venue, u.ciudad].filter(Boolean).join(" · ") }))));
+    const artes = c.ok.concat(c.warn).map(e => e.file.name);
+    tb.append(el("tr", { class: st === "err" ? "falta" : "" },
+      el("td", { text: q.proveedor }), el("td", { class: "num", text: q.nombre }), el("td", { text: q.formatos || "—" }), el("td", { class: "num", text: q.duracionSeg ? q.duracionSeg + " s" : "—" }),
+      el("td", { class: "wrap" }, det), el("td", { class: "wrap", text: artes.join(", ") || "—" }),
+      el("td", null, el("span", { class: "pill p-" + st, text: st === "ok" ? "Con arte" : st === "warn" ? "Revisar" : "Falta arte" }))));
+  }
+  t.append(tb);
+}
+
+/* ---------------- evaluación ---------------- */
+function specOf(s) {
+  const esc = (+s.escala || 100) / 100, tol = s.tolerancia === "" || s.tolerancia == null ? 1 : +s.tolerancia;
+  if (s.tipo === "digital") return { digital: true, W: +s.ancho, H: +s.alto, tol };
+  const Wn = toCm(s.ancho, s.unidad), Hn = toCm(s.alto, s.unidad), sb = toCm(s.sangrado || 0, s.unidad);
+  return { digital: false, esc, tol, Wn, Hn, sb, W: Wn + 2 * sb, H: Hn + 2 * sb, fW: (Wn + 2 * sb) * esc, fH: (Hn + 2 * sb) * esc, fWn: Wn * esc, fHn: Hn * esc };
+}
+function fileDims(e) {
+  const i = e.info || {};
+  if (i.wPt) return { vec: true, wCm: i.wPt / 72 * 2.54, hCm: i.hPt / 72 * 2.54 };
+  return { vec: false, w: i.w, h: i.h };
+}
+function compatible(e, s) { if (e.kind === "video") return s.tipo === "digital"; if (e.kind === "vector") return s.tipo !== "digital"; return true; }
+function matchScore(e, s) {
+  const d = fileDims(e), sp = specOf(s); if (!compatible(e, s)) return Infinity;
+  const r = d.vec ? d.wCm / d.hCm : d.w / d.h;
+  if (!isFinite(r) || !sp.W || !sp.H) return Infinity;
+  if (sp.digital) return pct(r, sp.W / sp.H) + (d.w === sp.W && d.h === sp.H ? 0 : 0.05);
+  let sc = Math.min(pct(r, sp.W / sp.H), sp.sb ? pct(r, sp.Wn / sp.Hn) + 0.2 : Infinity);
+  if (d.vec) sc += Math.min(pct(d.wCm, sp.fW), pct(d.wCm, sp.fWn)) / 100;
+  return sc;
+}
+function candidates() { return S.plan ? S.plan.reqs : S.soportes; }
+function autoPick(e) {
+  let best = null, bs = Infinity;
+  for (const s of candidates()) { const sc = matchScore(e, s); if (sc < bs) { bs = sc; best = s; } }
+  return bs <= (S.plan ? 15 : 3) ? best : null;
+}
+function evaluate(e, s) {
+  const C = [], add = (l, t) => C.push({ l, t });
+  const sp = specOf(s), d = fileDims(e), i = e.info || {};
+  let expected = "", detected = "";
+  if (d.vec) detected = `${nf(d.wCm)} × ${nf(d.hCm)} cm (vector/PDF${i.pages > 1 ? `, ${i.pages} páginas` : ""})`;
+  else detected = `${i.w} × ${i.h} px` + (i.dur ? ` · ${nf(i.dur)} s` : "");
+
+  if (sp.digital) {
+    expected = `${sp.W} × ${sp.H} px` + (s.duracionSeg ? ` · ${s.duracionSeg} s` : "");
+    if (d.vec) add("err", "Para pantalla se necesita un archivo en píxeles (JPG, PNG o video), no un PDF o vector.");
+    else if (d.w === sp.W && d.h === sp.H) add("ok", `Medida exacta: ${d.w} × ${d.h} px.`);
+    else if (d.w === sp.H && d.h === sp.W) add("err", `Orientación invertida: el arte es ${orient(d.w, d.h)} y la pantalla es ${orient(sp.W, sp.H)}.`);
+    else if (near(d.w / d.h, sp.W / sp.H, Math.max(sp.tol, 0.2))) {
+      if (d.w > sp.W) add("warn", `Proporción correcta pero mide ${d.w} × ${d.h} px. La pantalla pide ${sp.W} × ${sp.H}; se puede reducir sin deformar.`);
+      else add("err", `Proporción correcta pero es más chico (${d.w} × ${d.h} px). Se vería pixeleado; se necesitan ${sp.W} × ${sp.H} px.`);
+    } else add("err", `Medida incorrecta: ${d.w} × ${d.h} px. La pantalla pide ${sp.W} × ${sp.H} px (diferencia de proporción ${nf(pct(d.w / d.h, sp.W / sp.H))} %).`);
+    if (s.duracionSeg && e.kind === "video") {
+      if (Math.abs(i.dur - s.duracionSeg) <= 0.5) add("ok", `Duración ${nf(i.dur)} s.`);
+      else add("err", `Dura ${nf(i.dur)} s y el spot debe durar ${s.duracionSeg} s.`);
+    } else if (s.duracionSeg && e.kind !== "video") add("info", `El soporte pide spots de ${s.duracionSeg} s; este archivo es una imagen fija. Confirma con el proveedor si la acepta.`);
+  } else {
+    const real = `${nf(sp.W)} × ${nf(sp.H)} cm`;
+    expected = `${nf(sp.fW)} × ${nf(sp.fH)} cm` + (sp.esc !== 1 ? ` (al ${nf(sp.esc * 100, 2)} % de ${real})` : "") + (sp.sb ? ` · incluye ${nf(sp.sb)} cm de sangrado por lado` : "");
+    const rb = sp.W / sp.H, rn = sp.Wn / sp.Hn;
+    if (e.kind === "video") add("err", "Este soporte es impreso; se recibió un video.");
+    else if (d.vec) {
+      const m = (w, h, W, H) => near(w, W, sp.tol) && near(h, H, sp.tol);
+      const r = d.wCm / d.hCm;
+      if (m(d.wCm, d.hCm, sp.fW, sp.fH)) add("ok", `Medida correcta: ${nf(d.wCm)} × ${nf(d.hCm)} cm.`);
+      else if (sp.sb && m(d.wCm, d.hCm, sp.fWn, sp.fHn)) add("warn", `Mide el área visible (${nf(d.wCm)} × ${nf(d.hCm)} cm) pero no trae sangrado. Faltan ${nf(sp.sb * sp.esc)} cm por lado en el archivo.`);
+      else if (m(d.wCm, d.hCm, sp.fH, sp.fW) || (sp.sb && m(d.wCm, d.hCm, sp.fHn, sp.fWn))) add("err", `Orientación invertida: el arte es ${orient(d.wCm, d.hCm)} y el soporte es ${orient(sp.W, sp.H)}.`);
+      else if (near(r, rb, sp.tol) || (sp.sb && near(r, rn, sp.tol))) {
+        const base = near(r, rb, sp.tol) ? sp.W : sp.Wn;
+        add("err", `La proporción es correcta pero mide ${nf(d.wCm)} × ${nf(d.hCm)} cm: está al ${nf(d.wCm / base * 100, 2)} % del tamaño real y el proveedor lo pide al ${nf(sp.esc * 100, 2)} %.`);
+      } else add("err", `Medida incorrecta: ${nf(d.wCm)} × ${nf(d.hCm)} cm. Se esperaba ${nf(sp.fW)} × ${nf(sp.fH)} cm (diferencia de proporción ${nf(pct(r, rb))} %).`);
+      if (i.pages > 1) add("warn", `El PDF tiene ${i.pages} páginas; solo se revisó la primera.`);
+      if (sp.dpiMin) add("info", `En PDF o vector no se puede medir aquí la resolución de las fotos internas. Revísala en el preflight de Acrobat (mínimo ${s.dpiMin} dpi a esta escala).`);
+    } else {
+      const r = d.w / d.h;
+      if (near(r, rb, sp.tol)) add("ok", `Proporción correcta${sp.sb ? " con sangrado" : ""} (${nf(r, 3)}).`);
+      else if (sp.sb && near(r, rn, sp.tol)) add("warn", `La proporción coincide con el área visible, sin sangrado. Pide que agreguen ${nf(sp.sb)} cm por lado (a tamaño real).`);
+      else if (near(r, 1 / rb, sp.tol) || (sp.sb && near(r, 1 / rn, sp.tol))) add("err", `Orientación invertida: el arte es ${orient(d.w, d.h)} y el soporte es ${orient(sp.W, sp.H)}.`);
+      else add("err", `La proporción no coincide: el arte es ${nf(r, 3)} y el soporte pide ${nf(rb, 3)} (diferencia ${nf(pct(r, rb))} %). Se deformaría o quedaría cortado.`);
+      const eff = Math.min(d.w / (sp.fW / 2.54), d.h / (sp.fH / 2.54));
+      if (sp.esc !== 1 || s.dpiMin) {
+        if (s.dpiMin) {
+          const needW = Math.ceil(sp.fW / 2.54 * s.dpiMin), needH = Math.ceil(sp.fH / 2.54 * s.dpiMin);
+          if (eff + 0.5 >= +s.dpiMin) add("ok", `Resolución suficiente: ${nf(eff, 0)} dpi a ${nf(sp.fW)} × ${nf(sp.fH)} cm (mínimo ${s.dpiMin}).`);
+          else add("err", `Resolución insuficiente: ${nf(eff, 0)} dpi a ${nf(sp.fW)} × ${nf(sp.fH)} cm. Con ${s.dpiMin} dpi se necesitan al menos ${needW} × ${needH} px.`);
+        } else add("info", `Resolución efectiva: ${nf(eff, 0)} dpi a ${nf(sp.fW)} × ${nf(sp.fH)} cm.`);
+      } else add("info", `Resolución efectiva: ${nf(eff, 0)} dpi a ${nf(sp.fW)} × ${nf(sp.fH)} cm.`);
+      if (i.dpiX) {
+        const wc = d.w / i.dpiX * 2.54, hc = d.h / (i.dpiY || i.dpiX) * 2.54;
+        if (near(wc, sp.fW, Math.max(sp.tol, 1)) && near(hc, sp.fH, Math.max(sp.tol, 1))) add("ok", `Medida guardada en el archivo: ${nf(wc)} × ${nf(hc)} cm a ${nf(i.dpiX, 0)} dpi.`);
+        else add("info", `El archivo está guardado a ${nf(i.dpiX, 0)} dpi, lo que da ${nf(wc)} × ${nf(hc)} cm. Con los mismos píxeles basta poner ${nf(eff, 0)} dpi (sin remuestrear) para que mida ${nf(sp.fW)} × ${nf(sp.fH)} cm.`);
+      }
+    }
+    if (s.color && i.color && e.kind !== "video") {
+      if (i.color === s.color) add("ok", `Modo de color ${i.color}.`);
+      else add("warn", `El soporte pide ${s.color} y el archivo está en ${i.color}.`);
+    } else if (s.color && !i.color && e.kind !== "video") add("info", `No se pudo leer el modo de color; el soporte pide ${s.color}.`);
+  }
+  const fl = fmtList(s.formatos);
+  if (fl.length) { if (fl.includes(e.ext)) add("ok", `Formato ${e.ext} aceptado.`); else add("err", `Formato ${e.ext || "desconocido"} no aceptado. Acepta: ${fl.join(", ")}.`); }
+  if (+s.pesoMaxMB) { if (e.sizeMB <= +s.pesoMaxMB) add("ok", `Peso ${nf(e.sizeMB, 2)} MB (máximo ${s.pesoMaxMB}).`); else add("err", `Pesa ${nf(e.sizeMB, 2)} MB y el máximo es ${s.pesoMaxMB} MB.`); }
+  if (s.notas) add("info", `Nota del proveedor: ${s.notas}`);
+  const v = C.some(c => c.l === "err") ? "err" : C.some(c => c.l === "warn") ? "warn" : "ok";
+  return { v, checks: C, expected, detected };
+}
+const VLABEL = { ok: "Cumple", warn: "Revisar", err: "No cumple" };
+function resultFor(e) {
+  if (e.status !== "listo") return null;
+  let s = null, auto = false;
+  let matches = [];
+  if (e.sel === "auto") {
+    auto = true;
+    // Todas las medidas que el arte cumple (un mismo arte puede servir a varios media owners)
+    matches = candidates().filter(c => compatible(e, c)).map(c => ({ s: c, ...evaluate(e, c) })).filter(m => m.v !== "err")
+      .sort((a, b) => (a.v === "ok" ? 0 : 1) - (b.v === "ok" ? 0 : 1) || matchScore(e, a.s) - matchScore(e, b.s));
+    s = matches.length ? matches[0].s : autoPick(e);
+  } else { s = findSup(e.sel); }
+  const fuente = S.plan ? "del plan" : "del catálogo";
+  if (!s) return { v: "err", s: null, auto, matches: [], checks: [{ l: "err", t: candidates().length ? (auto ? `Ninguna medida ${fuente} se parece a este arte. Elige el soporte a mano para ver qué falla.` : "El soporte elegido ya no existe.") : "Todavía no hay soportes en el catálogo." }], expected: "", detected: fileDims(e).vec ? "" : `${e.info.w} × ${e.info.h} px` };
+  const r = { ...evaluate(e, s), s, auto };
+  if (!auto) matches = r.v !== "err" ? [{ s, v: r.v }] : [];
+  r.matches = matches;
+  r.otros = matches.filter(m => m.s.id !== s.id);
+  return r;
+}
+
+/* ---------------- adaptar (solo ajustes seguros) ---------------- */
+const RASTER_OUT = { JPG: "image/jpeg", PNG: "image/png", WEBP: "image/webp" };
+function adaptPlan(e, s) {
+  if (!s || e.status !== "listo" || e.adaptado) return null;
+  const sp = specOf(s), d = fileDims(e), i = e.info || {};
+  if (sp.digital) {
+    if (d.vec || e.kind !== "image" || !RASTER_OUT[e.ext]) return null;
+    if (d.w === sp.W && d.h === sp.H) return null;
+    if (!near(d.w / d.h, sp.W / sp.H, Math.max(sp.tol, 0.2))) return null;
+    const up = d.w < sp.W;
+    return { tipo: "resize", W: sp.W, H: sp.H, label: `Adaptar a ${sp.W}×${sp.H} px`, nota: up ? `Se agranda ${nf(sp.W / d.w * 100, 0)} %; revisa que no se vea pixeleado.` : "Se reduce de tamaño sin deformar ni mover nada." };
+  }
+  if (d.vec) {
+    if (e.ext !== "PDF") return null;
+    const r = d.wCm / d.hCm;
+    if (!near(r, sp.W / sp.H, sp.tol)) return null;
+    if (near(d.wCm, sp.fW, sp.tol) && near(d.hCm, sp.fH, sp.tol)) return null;
+    return { tipo: "pdfscale", f: sp.fW / d.wCm, label: `Escalar PDF a ${nf(sp.fW)} × ${nf(sp.fH)} cm`, nota: "Escala la página completa; vectores, textos y color quedan igual." };
+  }
+  if (e.kind !== "image" || !/^(JPG|PNG|TIFF)$/.test(e.ext)) return null;
+  if (!near(d.w / d.h, sp.W / sp.H, sp.tol)) return null;
+  const eff = Math.min(d.w / (sp.fW / 2.54), d.h / (sp.fH / 2.54));
+  if (s.dpiMin && eff + 0.5 < +s.dpiMin) return null;
+  if (i.dpiX && near(i.dpiX, eff, 1)) return null;
+  if (e.ext === "TIFF" && !i.dpiX) return null;
+  const dpi = e.ext === "JPG" ? Math.round(eff) : Math.round(eff * 100) / 100;
+  return { tipo: "dpi", dpi, label: `Ajustar a ${nf(dpi, 2)} dpi`, nota: `Solo cambia el dato de resolución para que mida ${nf(sp.fW)} × ${nf(sp.fH)} cm. Los píxeles y el color (${i.color || "original"}) no se tocan.` };
+}
+function patchTiffRes(dv, dpi) {
+  const le = dv.getUint16(0) === 0x4949, u16 = o => dv.getUint16(o, le), u32 = o => dv.getUint32(o, le);
+  if (u16(2) !== 42) return false;
+  const ifd = u32(4), n = u16(ifd); let ok = false;
+  for (let k = 0; k < n; k++) {
+    const e = ifd + 2 + k * 12, tag = u16(e);
+    if ((tag === 282 || tag === 283) && u16(e + 2) === 5) { const off = u32(e + 8); dv.setUint32(off, Math.round(dpi * 1000), le); dv.setUint32(off + 4, 1000, le); ok = true; }
+    if (tag === 296 && u16(e + 2) === 3) dv.setUint16(e + 8, 2, le);
+  }
+  return ok;
+}
+function setDpiJPEG(buf, dpi) {
+  const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength), D = Math.round(dpi); let o = 2, jfif = false;
+  while (o + 4 <= dv.byteLength) {
+    if (dv.getUint8(o) !== 0xFF) { o++; continue; }
+    const m = dv.getUint8(o + 1);
+    if (m === 0xFF) { o++; continue; }
+    if (m === 0xD8 || m === 0x01 || (m >= 0xD0 && m <= 0xD7)) { o += 2; continue; }
+    if (m === 0xD9 || m === 0xDA) break;
+    const len = dv.getUint16(o + 2), s = o + 4;
+    if (m === 0xE0 && str(dv, s, 4) === "JFIF") { dv.setUint8(s + 7, 1); dv.setUint16(s + 8, D); dv.setUint16(s + 10, D); jfif = true; }
+    if (m === 0xE1 && str(dv, s, 4) === "Exif") { try { patchTiffRes(new DataView(buf.buffer, buf.byteOffset + s + 6, len - 8), D); } catch {} }
+    o += 2 + len;
+  }
+  if (jfif) return buf;
+  const app0 = new Uint8Array([0xFF, 0xE0, 0, 16, 0x4A, 0x46, 0x49, 0x46, 0, 1, 1, 1, D >> 8, D & 255, D >> 8, D & 255, 0, 0]);
+  const out = new Uint8Array(buf.length + app0.length); out.set(buf.subarray(0, 2)); out.set(app0, 2); out.set(buf.subarray(2), 2 + app0.length);
+  return out;
+}
+let CRC_T; function crc32(bytes) { if (!CRC_T) { CRC_T = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; CRC_T[n] = c >>> 0; } } let c = 0xFFFFFFFF; for (const b of bytes) c = CRC_T[(c ^ b) & 255] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; }
+function setDpiPNG(buf, dpi) {
+  const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength), parts = [buf.subarray(0, 33)];
+  const ppm = Math.round(dpi / 0.0254), ch = new Uint8Array(21), cv = new DataView(ch.buffer);
+  cv.setUint32(0, 9); ch.set([0x70, 0x48, 0x59, 0x73], 4); cv.setUint32(8, ppm); cv.setUint32(12, ppm); ch[16] = 1; cv.setUint32(17, crc32(ch.subarray(4, 17)));
+  parts.push(ch);
+  let o = 33;
+  while (o + 12 <= dv.byteLength) { const l = dv.getUint32(o), t = str(dv, o + 4, 4); if (t !== "pHYs") parts.push(buf.subarray(o, o + 12 + l)); o += 12 + l; if (t === "IEND") break; }
+  const out = new Uint8Array(parts.reduce((a, p) => a + p.length, 0)); let k = 0; for (const p of parts) { out.set(p, k); k += p.length; }
+  return out;
+}
+function setDpiTIFF(buf, dpi) { if (!patchTiffRes(new DataView(buf.buffer, buf.byteOffset, buf.byteLength), dpi)) throw new Error("El TIFF no trae un dato de resolución que se pueda ajustar."); return buf; }
+async function resizeImage(file, W, H, ext) {
+  let bmp; try { bmp = await createImageBitmap(file, { resizeWidth: W, resizeHeight: H, resizeQuality: "high" }); } catch { bmp = await createImageBitmap(file); }
+  const c = document.createElement("canvas"); c.width = W; c.height = H;
+  const g = c.getContext("2d"); g.imageSmoothingEnabled = true; g.imageSmoothingQuality = "high";
+  if (ext === "JPG") { g.fillStyle = "#ffffff"; g.fillRect(0, 0, W, H); }
+  g.drawImage(bmp, 0, 0, W, H);
+  return new Promise((res, rej) => c.toBlob(b => b ? res(b) : rej(new Error("No se pudo generar la imagen.")), RASTER_OUT[ext], 0.95));
+}
+let pdflibP = null;
+const pdflib = () => pdflibP ||= loadScript("https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js").then(() => window.PDFLib).catch(e => { pdflibP = null; throw e; });
+async function scalePDF(buf, f) {
+  const L = await pdflib();
+  const doc = await L.PDFDocument.load(buf, { ignoreEncryption: true, updateMetadata: false });
+  for (const pg of doc.getPages()) pg.scale(f, f);
+  return doc.save({ useObjectStreams: false });
+}
+async function runAdapt(e, plan, btn) {
+  if (btn) { btn.disabled = true; btn.textContent = "Adaptando…"; }
+  try {
+    let blob;
+    if (plan.tipo === "resize") blob = await resizeImage(e.file, plan.W, plan.H, e.ext);
+    else {
+      const buf = new Uint8Array(await e.file.arrayBuffer());
+      if (plan.tipo === "dpi") blob = new Blob([e.ext === "JPG" ? setDpiJPEG(buf, plan.dpi) : e.ext === "PNG" ? setDpiPNG(buf, plan.dpi) : setDpiTIFF(buf, plan.dpi)]);
+      else blob = new Blob([await scalePDF(buf, plan.f)]);
+    }
+    const nm = e.file.name.replace(/(\.[^.]+)?$/, "_adaptado$1");
+    const f = new File([blob], nm, { type: MIME[e.ext] || "" });
+    const ne = { id: ++seq, file: f, name: e.name.replace(/[^/]*$/, nm), ext: e.ext, sizeMB: f.size / 1048576, status: "leyendo", info: null, sel: e.sel, original: e, adaptado: `Adaptado por la app: ${plan.label.toLowerCase()}.` };
+    const k = S.files.indexOf(e); if (k >= 0) S.files.splice(k, 1, ne); else S.files.push(ne);
+    track(ne); renderResults();
+  } catch (err) { toast("No se pudo adaptar: " + (err.message || err)); if (btn) { btn.disabled = false; btn.textContent = plan.label; } }
+}
+async function saveFile(file, btn) {
+  try {
+    const dl = window.claude && window.claude.use ? await window.claude.use("downloads") : null;
+    if (dl) await dl.save({ filename: file.name, data: file });
+    else { const a = el("a", { href: URL.createObjectURL(file), download: file.name }); document.body.append(a); a.click(); a.remove(); }
+  } catch (err) { if (!err || err.code !== "declined") toast("No se pudo descargar: " + (err && err.message || err)); }
+}
+
+/* ---------------- render: revisar ---------------- */
+function supOptions(sel, withAuto, autoLabel) {
+  const frag = [];
+  if (withAuto) frag.push(el("option", { value: "auto", selected: sel === "auto", text: autoLabel || "Automático (por proporción)" }));
+  if (S.plan) {
+    const pg = {};
+    for (const s of S.plan.reqs) (pg[s.proveedor] ||= []).push(s);
+    for (const [p, arr] of Object.entries(pg)) frag.push(el("optgroup", { label: "Plan · " + p }, arr.map(s => el("option", { value: s.id, selected: s.id === sel, text: `${s.nombre}${s.duracionSeg ? " · " + s.duracionSeg + " s" : ""}` }))));
+  }
+  const groups = {};
+  for (const s of S.soportes) (groups[s.proveedor || "Sin proveedor"] ||= []).push(s);
+  for (const [p, arr] of Object.entries(groups)) frag.push(el("optgroup", { label: p }, arr.map(s => el("option", { value: s.id, selected: s.id === sel, text: `${s.nombre} — ${specShort(s)}` }))));
+  return frag;
+}
+function specShort(s) {
+  if (s.tipo === "digital") return `${s.ancho}×${s.alto} px`;
+  return `${s.ancho}×${s.alto} ${s.unidad}` + (+s.escala && +s.escala !== 100 ? ` al ${s.escala}%` : "");
+}
+function renderGlobal() {
+  const g = $("#globalSel");
+  if (S.global !== "auto" && !findSup(S.global)) S.global = "auto";
+  g.replaceChildren(...supOptions(S.global, true));
+  const box = $("#globalSpec"); box.replaceChildren();
+  const s = findSup(S.global);
+  if (!s && S.plan && S.global === "auto") box.append(el("div", null, "Comparando contra ", el("b", { text: `${S.plan.reqs.length} medidas del plan` }), "."));
+  if (s) {
+    const sp = specOf(s);
+    const lines = s.tipo === "digital"
+      ? [["Pantalla", `${s.ancho} × ${s.alto} px`], s.duracionSeg && ["Duración", `${s.duracionSeg} s`]]
+      : [["Real", `${nf(sp.Wn)} × ${nf(sp.Hn)} cm` + (sp.sb ? ` + ${nf(sp.sb)} cm sangrado` : "")], ["Archivo", `${nf(sp.fW)} × ${nf(sp.fH)} cm` + (sp.esc !== 1 ? ` (al ${s.escala} %)` : "")], s.dpiMin && ["Resolución", `${s.dpiMin} dpi mín.`], s.color && ["Color", s.color]];
+    lines.push(s.formatos && ["Formatos", fmtList(s.formatos).join(", ")], +s.pesoMaxMB && ["Peso máx.", `${s.pesoMaxMB} MB`]);
+    for (const l of lines.filter(Boolean)) box.append(el("div", null, l[0] + ": ", el("b", { text: l[1] })));
+  } else if (!S.soportes.length) box.append(el("div", { text: "Agrega soportes en la pestaña “Soportes de proveedores”." }));
+}
+function renderResults() {
+  const box = $("#results"); box.replaceChildren();
+  const counts = { ok: 0, warn: 0, err: 0 };
+  if (!S.files.length) box.append(el("div", { class: "empty", text: "Aún no hay artes. Arrastra archivos a la zona de arriba o usa “Elegir archivos”." }));
+  for (const e of S.files) {
+    const r = resultFor(e);
+    if (r) counts[r.v]++;
+    const thumb = el("div", { class: "thumb" }, e.thumb ? el("img", { src: e.thumb, alt: "" }) : el("span", { class: "fmt", text: e.ext || "?" }));
+    const body = el("div", { style: "min-width:0" },
+      el("div", { class: "name", text: e.name }),
+      el("div", { class: "meta" }, el("span", { text: e.ext || "—" }), el("span", { text: nf(e.sizeMB, 2) + " MB" }), e.info && e.info.color ? el("span", { text: e.info.color }) : null, e.info && e.info.dpiX ? el("span", { text: nf(e.info.dpiX, 0) + " dpi en archivo" }) : null, e.adaptado ? el("span", { class: "tag ad", text: "Adaptado" }) : null));
+    let pill;
+    if (e.status === "leyendo") { pill = el("span", { class: "pill p-wait", text: "Leyendo…" }); }
+    else if (e.status === "error") { pill = el("span", { class: "pill p-err", text: "No se pudo leer" }); body.append(el("ul", { class: "checks" }, el("li", { class: "l-err", text: e.err }))); counts.err++; }
+    else {
+      pill = el("span", { class: "pill p-" + r.v, text: VLABEL[r.v] });
+      const dl = el("dl", { class: "cmp" });
+      if (r.s) dl.append(el("dt", { text: r.s.plan ? "Plan" : "Soporte" }), el("dd", { text: supLabel(r.s) + (r.s.plan ? ` (${r.s.ubicaciones.length} ubic.)` : "") + (r.auto && !r.s.plan ? " (automático)" : "") }));
+      if (r.otros && r.otros.length) dl.append(el("dt", { text: "También" }), el("dd", { text: r.otros.map(m => supLabel(m.s)).join("; ") }));
+      if (r.expected) dl.append(el("dt", { text: "Pide" }), el("dd", { text: r.expected }));
+      if (r.detected) dl.append(el("dt", { text: "Trae" }), el("dd", { text: r.detected }));
+      body.append(dl, el("ul", { class: "checks" }, r.checks.map(c => el("li", { class: "l-" + c.l, text: c.t }))));
+    }
+    const sel = el("select", { "aria-label": "Soporte para " + e.name, id: "sel-" + e.id, onchange: ev => { e.sel = ev.target.value; renderResults(); } });
+    const ap = e.status === "listo" && e.sel === "auto" ? autoPick(e) : null;
+    sel.append(...supOptions(e.sel, true, ap ? `Automático: ${ap.nombre}` : "Automático"));
+    const ap2 = r && r.s ? adaptPlan(e, r.s) : null;
+    const extra = [];
+    if (ap2) { const b = el("button", { type: "button", text: ap2.label }); b.onclick = () => runAdapt(e, ap2, b); extra.push(b, el("p", { class: "hint", text: ap2.nota })); }
+    if (e.adaptado) {
+      extra.push(el("p", { class: "hint", text: e.adaptado }));
+      if (/^(JPG|PNG|WEBP|PDF)$/.test(e.ext)) extra.push(el("button", { type: "button", text: "Descargar este archivo", onclick: ev => saveFile(e.file, ev.target) }));
+      extra.push(el("button", { class: "ghost", type: "button", text: "Volver al original", onclick: () => { const k = S.files.indexOf(e); if (k >= 0) S.files.splice(k, 1, e.original); renderResults(); } }));
+    }
+    const side = el("div", { class: "side" }, pill, allSups().length ? sel : null, extra, el("button", { class: "ghost", type: "button", text: "Quitar", onclick: () => { S.files = S.files.filter(x => x !== e); renderResults(); } }));
+    box.append(el("article", { class: "res" + (r ? " v-" + r.v : e.status === "error" ? " v-err" : "") }, thumb, body, side));
+  }
+  const sm = $("#summary"); sm.replaceChildren();
+  if (S.files.length) for (const k of ["ok", "warn", "err"]) if (counts[k]) sm.append(el("span", { class: "count c-" + k, text: `${counts[k]} ${VLABEL[k].toLowerCase()}` }));
+  $("#copyReport").disabled = !S.files.length; $("#clearFiles").hidden = !S.files.length;
+  renderEntregas(); renderPlan();
+  const nAd = S.files.filter(e => { const r = resultFor(e); return r && r.s && r.v !== "ok" && adaptPlan(e, r.s); }).length;
+  const ab = $("#adaptAll"); ab.hidden = !nAd; ab.textContent = `Adaptar los que se pueden (${nAd})`;
+}
+function entregas() {
+  const incl = $("#inclWarn").checked, groups = new Map(); let fuera = 0;
+  for (const e of S.files) {
+    const r = resultFor(e);
+    const ms = r ? (r.matches || []).filter(m => m.v === "ok" || incl) : [];
+    if (!ms.length) { if (e.status !== "leyendo") fuera++; continue; }
+    const seen = new Set();
+    for (const m of ms) {
+      const p = m.s.proveedor || "Sin proveedor", k = p + "|" + m.s.id;
+      if (seen.has(k)) continue; seen.add(k);
+      if (!groups.has(p)) groups.set(p, []);
+      groups.get(p).push({ e, r: { ...evaluate(e, m.s), s: m.s } });
+    }
+  }
+  return { groups, fuera };
+}
+const safeName = t => String(t).replace(/×/g, "x").replace(/[\\/:*?"<>|]+/g, "-").replace(/\s+/g, " ").trim() || "sin-nombre";
+function renderEntregas() {
+  const box = $("#entregas"), t = $("#entTable");
+  const { groups, fuera } = entregas();
+  box.hidden = !S.files.length; t.replaceChildren();
+  if (!groups.size) { t.append(el("tbody", null, el("tr", null, el("td", { class: "empty", text: "Todavía no hay artes que cumplan para armar entregas." })))); return; }
+  t.append(el("thead", null, el("tr", null, ["Proveedor", "Artes", "Soportes", "Peso", ""].map(h => el("th", { text: h })))));
+  const tb = el("tbody");
+  for (const [p, arr] of groups) {
+    const sops = [...new Set(arr.map(x => x.r.s.nombre))];
+    const mb = [...new Set(arr.map(x => x.e))].reduce((a, e) => a + e.sizeMB, 0);
+    const btn = el("button", { class: "primary", type: "button", text: "Descargar ZIP" });
+    btn.onclick = () => zipProveedor(p, arr, btn);
+    tb.append(el("tr", null, el("td", { text: p }), el("td", { class: "num", text: arr.length }), el("td", { text: sops.join(", ") }), el("td", { class: "num", text: nf(mb, mb < 1 ? 2 : 1) + " MB" }), el("td", null, btn)));
+  }
+  t.append(tb);
+  if (fuera) tb.append(el("tr", null, el("td", { colspan: 5, class: "hint", text: `${fuera} arte${fuera > 1 ? "s" : ""} no se incluye${fuera > 1 ? "n" : ""} porque no cumple${fuera > 1 ? "n" : ""} o no tiene${fuera > 1 ? "n" : ""} soporte.` })));
+}
+let zipP = null;
+const jszip = () => zipP ||= loadScript("https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js").then(() => window.JSZip).catch(e => { zipP = null; throw e; });
+async function zipProveedor(p, arr, btn) {
+  const label = btn.textContent; btn.disabled = true; btn.textContent = "Armando ZIP…";
+  try {
+    const dl = window.claude && window.claude.use ? await window.claude.use("downloads") : null;
+    const JSZip = await jszip(); const z = new JSZip(); const used = new Set();
+    const fecha = new Date().toLocaleDateString("es-MX", { day: "numeric", month: "long", year: "numeric" });
+    const lista = [`Artes para ${p}`, `Fecha: ${fecha}`, ""];
+    for (const { e, r } of arr) {
+      let path = safeName(r.s.nombre) + "/" + safeName(e.file.name);
+      for (let k = 2; used.has(path); k++) path = safeName(r.s.nombre) + "/" + safeName(e.file.name).replace(/(\.[^.]+)?$/, ` (${k})$1`);
+      used.add(path); z.file(path, e.file, { binary: true });
+      lista.push(`• ${path}`, `   Soporte: ${r.s.nombre} — ${r.expected}`, `   Archivo: ${r.detected}${r.v === "warn" ? "  (con observaciones)" : ""}`);
+      if (r.s.plan) for (const u of r.s.ubicaciones) lista.push(`   Ubicación: ${[u.ubi, u.venue, u.ciudad].filter(Boolean).join(" · ")}`);
+    }
+    z.file("LISTA DE ARTES.txt", lista.join("\r\n"));
+    const blob = await z.generateAsync({ type: "blob", compression: "STORE" });
+    btn.textContent = "Guardando…";
+    const fname = `Artes ${safeName(p)}.zip`;
+    if (dl) await dl.save({ filename: fname, data: blob });
+    else { const a = el("a", { href: URL.createObjectURL(blob), download: fname }); document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 60000); }
+    toast("ZIP guardado");
+  } catch (err) {
+    if (!err || err.code !== "declined") toast(err && err.message ? "No se pudo descargar: " + err.message : "No se pudo descargar");
+  } finally { btn.disabled = false; btn.textContent = label; }
+}
+function reportText() {
+  const lines = ["Revisión de artes — " + new Date().toLocaleDateString("es-MX", { day: "numeric", month: "long", year: "numeric" }), ""];
+  for (const e of S.files) {
+    const r = resultFor(e);
+    if (!r) { lines.push(`• ${e.name}: ${e.status === "error" ? "no se pudo leer (" + e.err + ")" : "en lectura"}`); continue; }
+    lines.push(`• ${e.name} — ${VLABEL[r.v].toUpperCase()}${r.s ? " — " + supLabel(r.s) : ""}`);
+    if (r.expected) lines.push(`   Pide: ${r.expected}`);
+    if (r.detected) lines.push(`   Trae: ${r.detected}`);
+    for (const c of r.checks.filter(c => c.l === "err" || c.l === "warn")) lines.push(`   - ${c.t}`);
+  }
+  return lines.join("\n");
+}
+
+/* ---------------- render: soportes ---------------- */
+function renderTable() {
+  const t = $("#supTable"); t.replaceChildren();
+  $("#delExamples").hidden = !S.soportes.some(s => s.ejemplo);
+  $("#provList").replaceChildren(...[...new Set(S.soportes.map(s => s.proveedor))].map(p => el("option", { value: p })));
+  if (!S.soportes.length) { t.append(el("tbody", null, el("tr", null, el("td", { class: "empty", colspan: 9, text: "No hay soportes todavía. Usa “Agregar soporte” o pega tu lista desde Excel." })))); return; }
+  t.append(el("thead", null, el("tr", null, ["Soporte", "Tipo", "Medida", "Escala", "Sangrado", "Resolución", "Color", "Formatos", ""].map(h => el("th", { text: h })))));
+  const tb = el("tbody"); let last = null;
+  for (const s of S.soportes) {
+    if (s.proveedor !== last) { last = s.proveedor; tb.append(el("tr", { class: "grp" }, el("td", { colspan: 9, text: s.proveedor || "Sin proveedor" }))); }
+    const dig = s.tipo === "digital";
+    tb.append(el("tr", null,
+      el("td", null, s.nombre, " ", s.ejemplo ? el("span", { class: "tag ex", text: "ejemplo" }) : null),
+      el("td", null, el("span", { class: "tag", text: dig ? "digital" : "impreso" })),
+      el("td", { class: "num", text: dig ? `${s.ancho} × ${s.alto} px` + (s.duracionSeg ? ` · ${s.duracionSeg} s` : "") : `${s.ancho} × ${s.alto} ${s.unidad}` }),
+      el("td", { class: "num", text: dig ? "—" : (s.escala || 100) + " %" }),
+      el("td", { class: "num", text: dig || !+s.sangrado ? "—" : `${s.sangrado} ${s.unidad}` }),
+      el("td", { class: "num", text: dig || !s.dpiMin ? "—" : s.dpiMin + " dpi" }),
+      el("td", { text: s.color || "—" }),
+      el("td", { text: fmtList(s.formatos).join(", ") || "—" }),
+      el("td", null, el("button", { class: "ghost", type: "button", text: "Editar", onclick: () => openForm(s) }), confirmBtn("Borrar", () => delSup(s.id).then(() => toast("Soporte borrado")).catch(err => toast("No se pudo borrar: " + err.message))))));
+  }
+  t.append(tb);
+}
+function confirmBtn(label, fn) {
+  const b = el("button", { class: "ghost danger", type: "button", text: label });
+  let armed = false, tm;
+  b.onclick = () => { if (!armed) { armed = true; b.textContent = "¿Seguro?"; tm = setTimeout(() => { armed = false; b.textContent = label; }, 3000); } else { clearTimeout(tm); fn(); } };
+  return b;
+}
+const FIELDS = ["proveedor", "nombre", "tipo", "ancho", "alto", "unidad", "escala", "sangrado", "dpiMin", "color", "formatos", "pesoMaxMB", "duracionSeg", "tolerancia", "notas"];
+const NUMF = new Set(["ancho", "alto", "escala", "sangrado", "dpiMin", "pesoMaxMB", "duracionSeg", "tolerancia"]);
+function syncTipo() {
+  const dig = $("#s-tipo").value === "digital";
+  document.querySelectorAll(".only-print").forEach(n => n.hidden = dig);
+  document.querySelectorAll(".only-digital").forEach(n => n.hidden = !dig);
+  if (dig) $("#s-unidad").value = "px";
+}
+function openForm(s) {
+  S.editing = s ? s.id : null;
+  $("#formTitle").textContent = s ? "Editar soporte" : "Nuevo soporte";
+  for (const f of FIELDS) $("#s-" + f).value = s && s[f] != null ? s[f] : (f === "tipo" ? "impreso" : f === "unidad" ? "cm" : "");
+  syncTipo(); $("#supForm").hidden = false; $("#importPanel").hidden = true; $("#s-proveedor").focus();
+}
+function cleanSup(o) {
+  const d = {};
+  for (const f of FIELDS) { let v = o[f]; if (v == null) v = ""; v = String(v).trim(); d[f] = NUMF.has(f) ? (v === "" ? null : +v.replace(",", ".")) : v; }
+  d.tipo = /dig|pantalla|led|screen/i.test(d.tipo) ? "digital" : "impreso";
+  d.unidad = ({ cm: "cm", m: "m", mm: "mm", in: "in", pulgadas: "in", px: "px", pixeles: "px", "píxeles": "px" })[(d.unidad || "").toLowerCase()] || (d.tipo === "digital" ? "px" : "cm");
+  if (d.tipo === "digital") d.unidad = "px";
+  d.color = /cmyk/i.test(d.color) ? "CMYK" : /rgb/i.test(d.color) ? "RGB" : "";
+  return d;
+}
+
+/* ---------------- eventos ---------------- */
+function route() {
+  const v = location.hash === "#soportes" ? "soportes" : "revisar";
+  $("#view-revisar").hidden = v !== "revisar"; $("#view-soportes").hidden = v !== "soportes";
+  $("#view-soportes").style.display = v === "soportes" ? "grid" : "";
+  $("#tab-revisar").setAttribute("aria-current", v === "revisar" ? "page" : "false");
+  $("#tab-soportes").setAttribute("aria-current", v === "soportes" ? "page" : "false");
+}
+function renderAll() { renderGlobal(); renderResults(); renderTable(); }
+$("#pickPlan").onclick = () => $("#planIn").click();
+$("#planIn").onchange = ev => { const f = ev.target.files[0]; ev.target.value = ""; if (f) loadPlan(f); };
+$("#clearPlan").onclick = () => { setPlan(null); lsSet("va.plan", ""); };
+try { const sp = JSON.parse(lsGet("va.plan") || "null"); if (sp && sp.reqs) { S.plan = sp; $("#clearPlan").hidden = false; $("#pickPlan").textContent = "Subir otro plan"; } } catch {}
+window.addEventListener("hashchange", route);
+$("#globalSel").onchange = ev => { S.global = ev.target.value; lsSet("va.global", S.global); S.files.forEach(f => f.sel = S.global); renderGlobal(); renderResults(); };
+$("#pick").onclick = () => $("#fileIn").click();
+$("#fileIn").onchange = ev => { addFiles([...ev.target.files]); ev.target.value = ""; };
+const drop = $("#drop");
+["dragenter", "dragover"].forEach(t => drop.addEventListener(t, ev => { ev.preventDefault(); drop.classList.add("over"); }));
+["dragleave", "drop"].forEach(t => drop.addEventListener(t, ev => { ev.preventDefault(); drop.classList.remove("over"); }));
+async function walkEntry(entry, path, out) {
+  if (entry.isFile) { const f = await new Promise((res, rej) => entry.file(res, rej)); f.relPath = path + f.name; out.push(f); }
+  else if (entry.isDirectory) {
+    const rd = entry.createReader(); let batch;
+    do { batch = await new Promise((res, rej) => rd.readEntries(res, rej)); for (const e of batch) await walkEntry(e, path + entry.name + "/", out); } while (batch.length);
+  }
+}
+drop.addEventListener("drop", async ev => {
+  const items = [...(ev.dataTransfer.items || [])].map(i => i.webkitGetAsEntry && i.webkitGetAsEntry()).filter(Boolean);
+  if (!items.length) { addFiles([...ev.dataTransfer.files]); return; }
+  const out = []; for (const en of items) { try { await walkEntry(en, "", out); } catch {} }
+  addFiles(out);
+});
+$("#pickDir").onclick = () => $("#dirIn").click();
+$("#dirIn").onchange = ev => { addFiles([...ev.target.files]); ev.target.value = ""; };
+$("#inclWarn").onchange = () => renderEntregas();
+$("#exportCat").onclick = ev => saveFile(new File([JSON.stringify(S.soportes.map(({ id, ...x }) => x), null, 2)], "soportes.json", { type: "application/json" }), ev.target);
+$("#adaptAll").onclick = async ev => {
+  const b = ev.target; b.disabled = true;
+  for (const e of S.files.slice()) { const r = resultFor(e); const ap = r && r.s && r.v !== "ok" ? adaptPlan(e, r.s) : null; if (ap) await runAdapt(e, ap); }
+  b.disabled = false;
+};
+$("#clearFiles").onclick = () => { S.files = []; renderResults(); };
+$("#copyReport").onclick = () => {
+  const txt = reportText();
+  navigator.clipboard.writeText(txt).then(() => toast("Reporte copiado"), () => {
+    const ta = el("textarea", { rows: 10 }); ta.value = txt; $("#results").prepend(ta); ta.select(); toast("Selecciona el texto y cópialo con Ctrl+C");
+  });
+};
+$("#newSup").onclick = () => openForm(null);
+$("#cancelSup").onclick = () => { $("#supForm").hidden = true; };
+$("#s-tipo").onchange = syncTipo;
+$("#supForm").onsubmit = ev => {
+  ev.preventDefault();
+  const raw = {}; for (const f of FIELDS) raw[f] = $("#s-" + f).value;
+  const d = cleanSup(raw);
+  const prev = S.editing && S.soportes.find(s => s.id === S.editing);
+  if (prev && prev.ejemplo) d.ejemplo = false;
+  if (!d.ancho || !d.alto) { toast("Escribe el ancho y el alto"); return; }
+  $("#saveSup").disabled = true;
+  saveSup(d, S.editing).then(() => { $("#supForm").hidden = true; toast(S.editing ? "Soporte actualizado" : "Soporte agregado"); })
+    .catch(err => toast("No se pudo guardar: " + (err.message || err))).finally(() => $("#saveSup").disabled = false);
+};
+$("#toggleImport").onclick = () => { $("#importPanel").hidden = !$("#importPanel").hidden; $("#supForm").hidden = true; };
+$("#cancelImport").onclick = () => { $("#importPanel").hidden = true; };
+function parseImport(txt) {
+  const rows = txt.split(/\r?\n/).map(l => l.trim() ? l.split(l.includes("\t") ? "\t" : /;|,(?=(?:[^"]*"[^"]*")*[^"]*$)/) : null).filter(Boolean);
+  const order = ["proveedor", "nombre", "tipo", "ancho", "alto", "unidad", "escala", "sangrado", "dpiMin", "formatos", "color", "pesoMaxMB", "duracionSeg", "notas"];
+  return rows.map(c => { const o = {}; order.forEach((k, i) => o[k] = (c[i] || "").replace(/^"|"$/g, "")); return o; })
+    .filter(o => !isNaN(parseFloat(String(o.ancho).replace(",", "."))) && o.proveedor).map(cleanSup);
+}
+$("#importText").oninput = () => { const n = parseImport($("#importText").value).length; $("#importInfo").textContent = n ? `${n} soporte${n > 1 ? "s" : ""} listo${n > 1 ? "s" : ""} para importar` : ""; };
+$("#doImport").onclick = async () => {
+  const list = parseImport($("#importText").value);
+  if (!list.length) { toast("No encontré filas con proveedor, ancho y alto"); return; }
+  let ok = 0; for (const d of list) { try { await saveSup(d); ok++; } catch {} }
+  toast(`${ok} soporte${ok === 1 ? "" : "s"} importado${ok === 1 ? "" : "s"}`); $("#importText").value = ""; $("#importInfo").textContent = ""; $("#importPanel").hidden = true;
+};
+$("#delExamples").onclick = (() => { let armed = false; return async ev => { const b = ev.target; if (!armed) { armed = true; b.textContent = "¿Borrar todos los ejemplos?"; setTimeout(() => { armed = false; b.textContent = "Borrar ejemplos"; }, 3000); return; } for (const s of S.soportes.filter(s => s.ejemplo)) { try { await delSup(s.id); } catch {} } toast("Ejemplos borrados"); }; })();
+route(); renderAll();
+</script>
+
+</body>
+</html>
