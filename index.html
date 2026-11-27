@@ -148,6 +148,16 @@ details ul{margin:4px 0 0;padding-left:16px;font-size:.8rem;color:var(--muted)}
 .modal{position:fixed;inset:0;z-index:35;background:rgb(0 0 0/.35);display:grid;place-items:center;padding:16px max(16px,env(safe-area-inset-left,0px));overflow:auto}
 .modal .card{background:var(--surface);border-radius:12px;padding:20px;width:min(760px,100%);display:grid;gap:14px;box-shadow:0 18px 40px rgb(0 0 0/.25)}
 .modal h2{font-size:18px}
+.viewer{position:fixed;inset:0;z-index:45;background:rgb(16 20 26/.94);display:grid;grid-template-rows:auto minmax(0,1fr);color:#fff}
+.vbar{display:flex;align-items:center;gap:10px;padding:10px max(16px,env(safe-area-inset-left,0px));min-width:0}
+.vname{display:grid;min-width:0}.vname b{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.vname span{font-size:.82rem;opacity:.7;font-family:var(--f-mono)}
+.vbtn{background:rgb(255 255 255/.12);color:#fff;border:0;border-radius:8px;min-width:38px;height:38px;font-size:20px;cursor:pointer}.vbtn:hover{background:rgb(255 255 255/.22)}
+#vPos{font-size:.85rem;opacity:.75;font-family:var(--f-mono)}
+.vstage{display:grid;place-items:center;padding:8px 16px 20px;min-height:0;overflow:auto}
+.vstage img,.vstage video,.vstage canvas{max-width:100%;max-height:calc(100dvh - 90px);object-fit:contain;background:repeating-conic-gradient(#ccc 0 25%,#fff 0 50%) 0 0/16px 16px;box-shadow:0 8px 30px rgb(0 0 0/.4)}
+.vstage iframe{width:min(1000px,100%);height:calc(100dvh - 90px);border:0;background:#fff}
+.thumb.clic{cursor:zoom-in}.thumb.clic:hover{outline:2px solid var(--accent, #f44a64)}
+.linkbtn{background:none;border:0;padding:0;color:inherit;text-decoration:underline dotted;cursor:zoom-in;font:inherit;text-align:left}
 .genprev{background:var(--sunk);border-radius:8px;padding:12px;display:grid;place-items:center}
 .genprev canvas{max-width:100%;max-height:50vh;height:auto;box-shadow:0 0 0 1px var(--line)}
 .seg{display:inline-flex;border:1px solid var(--line);border-radius:6px;overflow:hidden}
@@ -292,13 +302,19 @@ details ul{margin:4px 0 0;padding-left:16px;font-size:.8rem;color:var(--muted)}
     <div id="loginMsg" class="msg err" hidden></div>
   </form>
 </div>
+<div class="viewer" id="viewer" hidden role="dialog" aria-modal="true" aria-label="Vista previa">
+  <div class="vbar"><div class="vname"><b id="vName"></b><span id="vInfo"></span></div><div class="spacer"></div>
+    <button type="button" class="vbtn" id="vPrev" aria-label="Anterior">‹</button><span id="vPos"></span><button type="button" class="vbtn" id="vNext" aria-label="Siguiente">›</button>
+    <button type="button" class="vbtn" id="vClose" aria-label="Cerrar">✕</button></div>
+  <div class="vstage" id="vStage"></div>
+</div>
 <div class="modal" id="genModal" hidden>
   <div class="card" role="dialog" aria-modal="true" aria-labelledby="genTitle">
     <div><div class="eyebrow" id="genEyebrow">Generar arte</div><h2 id="genTitle"></h2></div>
     <div class="row">
       <label class="f" style="flex:1 1 260px"><span>Arte de origen</span><select id="genSrc"></select></label>
       <label class="f"><span>Formato</span><select id="genFmt"><option value="auto">Lo que pida el plan</option><option value="JPG">JPG</option><option value="MP4">MP4</option></select></label>
-      <div class="f"><span>Cómo acomodarlo</span><div class="seg"><button type="button" id="genCrop" aria-pressed="true">Recortar orillas</button><button type="button" id="genFill" aria-pressed="false">Rellenar orillas</button></div></div>
+      <div class="f"><span>Cómo acomodarlo</span><div class="seg"><button type="button" id="genCrop" aria-pressed="true">Recortar orillas</button><button type="button" id="genFill" aria-pressed="false">Rellenar con color</button></div></div>
     </div>
     <label class="f" id="genTWrap" hidden><span>Cuadro del video para la imagen fija: <b id="genTVal"></b></span><input type="range" id="genT" min="0" step="0.1"></label>
     <div class="genprev"><canvas id="genCanvas"></canvas></div>
@@ -768,12 +784,13 @@ function renderPlan() {
     const c = cover.get(q.id), st = c.ok.length ? "ok" : c.warn.length ? "warn" : c.conv.length ? "conv" : "err";
     const ciudades = [...new Set(q.ubicaciones.map(u => u.ciudad).filter(Boolean))].join(", ");
     const det = el("details", null, el("summary", { text: `${q.ubicaciones.length} ${q.ubicaciones.length === 1 ? "ubicación" : "ubicaciones"}${ciudades ? " · " + ciudades : ""}` }), el("ul", null, q.ubicaciones.map(u => el("li", { text: [u.ubi, u.venue, u.ciudad].filter(Boolean).join(" · ") }))));
-    const artes = c.ok.concat(c.warn).map(e => e.file.name).concat(st === "conv" ? c.conv.map(e => `${e.file.name} (llegó en ${e.ext})`) : []);
+    const artesF = c.ok.concat(c.warn).concat(st === "conv" ? c.conv : []);
+    const artes = artesF.map(e => e.file.name + (c.conv.includes(e) && !c.ok.includes(e) && !c.warn.includes(e) ? ` (llegó en ${e.ext})` : ""));
     tb.append(el("tr", { class: st === "err" ? "falta" : "" },
       el("td", { text: q.proveedor }), el("td", { class: "num", text: q.nombre }),
       el("td", null, el("div", { class: "acts" }, el("span", { class: "pill p-" + (st === "conv" ? "warn" : st), text: st === "ok" ? "Con arte" : st === "warn" ? "Revisar" : st === "conv" ? "Falta convertir" : "Falta arte" }), ...planActs(q, st, c))),
       el("td", { text: q.formatos || "—" }), el("td", { class: "num", text: q.duracionSeg ? q.duracionSeg + " s" : "—" }),
-      el("td", { class: "ubis" }, det), el("td", { class: "artes", text: artes.join(", ") || "—" })));
+      el("td", { class: "ubis" }, det), el("td", { class: "artes" }, ...(artesF.length ? artesF.flatMap((e, k) => [k ? ", " : "", el("button", { type: "button", class: "linkbtn", title: "Ver en grande", text: artes[k], onclick: () => openViewer(e, artesF) })]) : ["—"]))));
   }
   t.append(tb);
   // Aviso con un solo botón para hacer todas las medidas que faltan
@@ -1161,7 +1178,7 @@ async function runAdapt(e, plan, btn) {
 }
 /* ---------------- generar arte para una medida que falta ----------------
    Toma un arte de proporción parecida y lo acomoda a la medida: recortando parejo las orillas
-   o metiéndolo completo y rellenando las orillas con el mismo arte difuminado. Siempre con vista previa. */
+   o metiéndolo completo y rellenando las orillas con el color de su borde. Siempre con vista previa. */
 function genSources(q) {
   if (q.tipo !== "digital") return [];
   const r = q.ancho / q.alto;
@@ -1182,7 +1199,7 @@ function genSources(q) {
   const cerca = all.filter(x => x.diff <= 15);
   if (cerca.length) return cerca.sort(orden);
   // Ningún arte tiene una proporción parecida: se ofrece el que mejor llena la pantalla sin recortar nada
-  // (el arte completo al centro y las orillas rellenas con el mismo arte difuminado). Siempre se revisa a mano.
+  // (el arte completo al centro y las orillas rellenas con el color de su borde). Siempre se revisa a mano.
   return all.map(x => {
     const ra = x.e.info.w / x.e.info.h, llena = Math.min(ra / r, r / ra);
     const upC = Math.min(q.ancho / x.e.info.w, q.alto / x.e.info.h);
@@ -1211,6 +1228,19 @@ async function genLoad() {
   try { GEN.bmp = vid ? await videoFrame(GEN.src.file, GEN.t) : await createImageBitmap(GEN.src.file); } catch { GEN.bmp = null; toast("No se pudo abrir ese arte"); return; }
   genDraw();
 }
+// Color de cada borde del arte (mediana de una franja delgada): izquierda/derecha o arriba/abajo
+const edgeCv = document.createElement("canvas");
+function edgeColors(b, bw, bh, lados) {
+  const N = 160, sw = lados ? Math.max(8, Math.round(N * bw / Math.max(bw, bh))) : N, sh = lados ? N : Math.max(8, Math.round(N * bh / Math.max(bw, bh)));
+  edgeCv.width = sw; edgeCv.height = sh;
+  const g = edgeCv.getContext("2d", { willReadFrequently: true }); g.clearRect(0, 0, sw, sh); g.drawImage(b, 0, 0, sw, sh);
+  const d = g.getImageData(0, 0, sw, sh).data;
+  const med = pts => { const ch = [0, 1, 2].map(k => pts.map(p => d[p + k]).sort((a, z) => a - z)[pts.length >> 1]); return `rgb(${ch.join(",")})`; };
+  const a = [], z = [];
+  if (lados) for (let y = 0; y < sh; y++) for (let x = 0; x < 2; x++) { a.push((y * sw + x) * 4); z.push((y * sw + sw - 1 - x) * 4); }
+  else for (let x = 0; x < sw; x++) for (let y = 0; y < 2; y++) { a.push((y * sw + x) * 4); z.push(((sh - 1 - y) * sw + x) * 4); }
+  return [med(a), med(z)];
+}
 function genRender(c, o = GEN) {
   const W = o.q.ancho, H = o.q.alto, b = o.bmp, g = c.getContext("2d");
   if (c.width !== W || c.height !== H) { c.width = W; c.height = H; }
@@ -1221,11 +1251,12 @@ function genRender(c, o = GEN) {
   if (o.mode === "crop") {
     const w = bw * cover, h = bh * cover; g.drawImage(b, (W - w) / 2, (H - h) / 2, w, h);
   } else {
-    const w = bw * cover, h = bh * cover;
-    const bl = Math.round(Math.max(W, H) / 40), m = bl * 3;
-    g.save(); try { g.filter = "blur(" + bl + "px)"; } catch {}
-    g.drawImage(b, (W - w) / 2 - m, (H - h) / 2 - m, w + 2 * m, h + 2 * m); g.restore();
-    const w2 = bw * contain, h2 = bh * contain; g.drawImage(b, (W - w2) / 2, (H - h2) / 2, w2, h2);
+    // Arte completo al centro; las orillas se rellenan con una plasta del color que trae el arte en ese borde
+    const w2 = bw * contain, h2 = bh * contain, x0 = (W - w2) / 2, y0 = (H - h2) / 2, lados = x0 >= y0;
+    const [c1, c2] = edgeColors(b, bw, bh, lados);
+    g.fillStyle = c1; if (lados) g.fillRect(0, 0, Math.ceil(x0) + 1, H); else g.fillRect(0, 0, W, Math.ceil(y0) + 1);
+    g.fillStyle = c2; if (lados) g.fillRect(Math.floor(x0 + w2) - 1, 0, W, H); else g.fillRect(0, Math.floor(y0 + h2) - 1, W, H);
+    g.drawImage(b, x0, y0, w2, h2);
   }
   return { cover, contain };
 }
@@ -1235,7 +1266,7 @@ function genDraw() {
   const { cover, contain } = genRender($("#genCanvas"));
   const b = GEN.bmp, W = GEN.q.ancho, H = GEN.q.alto, parts = [];
   const x = (GEN.srcs || []).find(s => s.e === GEN.src), best = GEN.srcs && GEN.srcs[0] && GEN.srcs[0].e === GEN.src;
-  if (x && x.lejos) parts.push(`Ningún arte tiene una proporción parecida a esta pantalla, así que ${best ? "la app eligió el que mejor la llena sin recortar nada" : "este arte se acomoda sin recortar"}: ocupa el ${nf(x.llena * 100, 0)} % de la pantalla y el resto se rellena con el mismo arte difuminado. Revisa que se lea bien; si no te convence, pide esta medida a la agencia.`);
+  if (x && x.lejos) parts.push(`Ningún arte tiene una proporción parecida a esta pantalla, así que ${best ? "la app eligió el que mejor la llena sin recortar nada" : "este arte se acomoda sin recortar"}: ocupa el ${nf(x.llena * 100, 0)} % de la pantalla y el resto se rellena con el color que trae el arte en sus orillas. Revisa que se lea bien; si no te convence, pide esta medida a la agencia.`);
   else if (x) parts.push(`${best ? "La app eligió este arte" : "Este arte"} porque su proporción es ${x.diff < 0.05 ? "igual" : nf(x.diff) + " % distinta"} a la de la pantalla y ${x.up <= 1.001 ? "tiene resolución de sobra, así que no hay que agrandarlo" : "habría que agrandarlo " + nf(x.up * 100, 0) + " %"}.${best && GEN.srcs.length > 1 ? ` Hay ${GEN.srcs.length - 1} ${GEN.srcs.length > 2 ? "opciones" : "opción"} más en la lista.` : ""}`);
   if (GEN.mode === "crop") {
     const cx = Math.round((b.width * cover - W) / 2 / cover), cy = Math.round((b.height * cover - H) / 2 / cover);
@@ -1244,7 +1275,7 @@ function genDraw() {
     if (cover > 1.01) parts.push(`El arte se agranda ${nf(cover * 100, 0)} %; puede verse menos nítido.`);
   } else {
     const fx = Math.round((W - b.width * contain) / 2), fy = Math.round((H - b.height * contain) / 2);
-    parts.push(`El arte entra completo, sin recortes. Se rellenan ${fx ? fx + " px a cada lado" : fy + " px arriba y abajo"} con el mismo arte difuminado.`);
+    parts.push(`El arte entra completo, sin recortes. Se rellenan ${fx ? fx + " px a cada lado" : fy + " px arriba y abajo"} con el color que trae el arte en esa orilla.`);
     if (contain > 1.01) parts.push(`El arte se agranda ${nf(contain * 100, 0)} %; puede verse menos nítido.`);
   }
   parts.push("El nuevo archivo se marca como generado por la app para que el proveedor y la agencia lo sepan si preguntan.");
@@ -1321,6 +1352,36 @@ async function generateAll(btn) {
   toast(`${n} arte${n > 1 ? "s" : ""} generado${n > 1 ? "s" : ""}. Revísalos en Resultados; dicen “Generado”.`);
 }
 
+/* ---------------- vista previa grande ---------------- */
+const V = { list: [], i: 0, url: null };
+function openViewer(e, list) {
+  V.list = (list && list.length ? list : S.files).filter(f => f.status === "listo" || f === e); V.i = Math.max(0, V.list.indexOf(e));
+  $("#viewer").hidden = false; showViewer();
+}
+function showViewer() {
+  const e = V.list[V.i], st = $("#vStage"); if (!e) return;
+  if (V.url) URL.revokeObjectURL(V.url); V.url = URL.createObjectURL(e.file);
+  $("#vName").textContent = e.file.name;
+  const i = e.info || {}, d = fileDims(e);
+  $("#vInfo").textContent = [d.vec ? `${nf(d.wCm)} × ${nf(d.hCm)} cm` : i.w ? `${i.w} × ${i.h} px` : "", i.dur ? `${nf(i.dur)} s` : "", e.ext, nf(e.sizeMB) + " MB", e.generado ? "generado por la app" : e.adaptado ? "adaptado por la app" : ""].filter(Boolean).join(" · ");
+  $("#vPos").textContent = V.list.length > 1 ? `${V.i + 1} de ${V.list.length}` : "";
+  $("#vPrev").hidden = $("#vNext").hidden = V.list.length < 2;
+  let m;
+  if (e.kind === "video") m = el("video", { src: V.url, controls: true, autoplay: true, muted: true, loop: true, playsinline: true });
+  else if (e.ext === "PDF") m = el("iframe", { src: V.url, title: e.file.name });
+  else if (/^(JPG|PNG|WEBP|GIF|SVG)$/.test(e.ext)) m = el("img", { src: V.url, alt: e.file.name });
+  else m = e.thumb ? el("img", { src: e.thumb, alt: e.file.name }) : el("p", { text: "Este formato no se puede mostrar en el navegador; descárgalo para revisarlo." });
+  st.replaceChildren(m);
+}
+function closeViewer() { $("#viewer").hidden = true; $("#vStage").replaceChildren(); if (V.url) { URL.revokeObjectURL(V.url); V.url = null; } }
+$("#vClose").onclick = closeViewer;
+$("#vPrev").onclick = () => { V.i = (V.i - 1 + V.list.length) % V.list.length; showViewer(); };
+$("#vNext").onclick = () => { V.i = (V.i + 1) % V.list.length; showViewer(); };
+$("#viewer").addEventListener("click", ev => { if (ev.target.id === "vStage") closeViewer(); });
+document.addEventListener("keydown", ev => {
+  if ($("#viewer").hidden) return;
+  if (ev.key === "Escape") closeViewer(); else if (ev.key === "ArrowLeft") $("#vPrev").click(); else if (ev.key === "ArrowRight") $("#vNext").click();
+});
 async function saveFile(file, btn) {
   try {
     const dl = window.claude && window.claude.use ? await window.claude.use("downloads") : null;
@@ -1370,7 +1431,7 @@ function renderResults() {
   for (const e of S.files) {
     const r = resultFor(e);
     if (r) counts[r.v]++;
-    const thumb = el("div", { class: "thumb" }, e.thumb ? el("img", { src: e.thumb, alt: "" }) : el("span", { class: "fmt", text: e.ext || "?" }));
+    const thumb = el("div", { class: "thumb" + (e.status === "listo" ? " clic" : ""), title: e.status === "listo" ? "Ver en grande" : null, role: e.status === "listo" ? "button" : null, tabindex: e.status === "listo" ? "0" : null, onclick: e.status === "listo" ? () => openViewer(e) : null, onkeydown: ev => { if ((ev.key === "Enter" || ev.key === " ") && e.status === "listo") { ev.preventDefault(); openViewer(e); } } }, e.thumb ? el("img", { src: e.thumb, alt: "" }) : el("span", { class: "fmt", text: e.ext || "?" }));
     const body = el("div", { style: "min-width:0" },
       el("div", { class: "name", text: e.name }),
       el("div", { class: "meta" }, el("span", { text: e.ext || "—" }), el("span", { text: nf(e.sizeMB, 2) + " MB" }), e.info && e.info.color ? el("span", { text: e.info.color }) : null, e.info && e.info.dpiX ? el("span", { text: nf(e.info.dpiX, 0) + " dpi en archivo" }) : null, e.adaptado ? el("span", { class: "tag ad", text: e.generado ? "Generado" : "Adaptado" }) : null));
@@ -1469,7 +1530,7 @@ function renderEntregas() {
     let btn = null;
     if (arr.length) { btn = el("button", { class: "primary", type: "button", text: "Descargar ZIP" }); btn.onclick = () => zipProveedor(p, arr, btn); }
     const pend = fl.length ? el("details", { open: true }, el("summary", { text: `Faltan ${fl.length} medida${fl.length > 1 ? "s" : ""}` }), el("ul", null, fl.map(x => el("li", null, x.t, " ", genSources(x.q).length ? el("button", { type: "button", class: "small-btn", text: "Hacer esta medida", onclick: () => openGen(x.q) }) : null)))) : "—";
-    tb.append(el("tr", null, el("td", { text: p }), el("td", { class: "num", text: arr.length }), el("td", { class: "wrap", text: sops.join(", ") || "—" }), el("td", { class: "num", text: arr.length ? nf(mb, mb < 1 ? 2 : 1) + " MB" : "—" }), el("td", { class: "wrap" }, pend), el("td", null, btn)));
+    tb.append(el("tr", null, el("td", { text: p }), el("td", { class: "num", text: arr.length }), el("td", { class: "wrap", text: sops.join(", ") || "—" }), el("td", { class: "num", text: arr.length ? nf(mb, mb < 1 ? 2 : 1) + " MB" : "—" }), el("td", { class: "wrap" }, pend), el("td", null, el("div", { class: "acts" }, arr.length ? el("button", { type: "button", text: "Ver artes", onclick: () => { const fs = [...new Set(arr.map(x => x.e))]; openViewer(fs[0], fs); } }) : null, btn))));
   }
   t.append(tb);
   if (fuera) tb.append(el("tr", null, el("td", { colspan: 6, class: "hint", text: `${fuera} arte${fuera > 1 ? "s" : ""} no se incluye${fuera > 1 ? "n" : ""} porque no cumple${fuera > 1 ? "n" : ""} o no tiene${fuera > 1 ? "n" : ""} soporte.` })));
