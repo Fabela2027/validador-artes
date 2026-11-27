@@ -294,6 +294,7 @@ details ul{margin:4px 0 0;padding-left:16px;font-size:.8rem;color:var(--muted)}
       <label class="f"><span>Formato</span><select id="genFmt"><option value="auto">Lo que pida el plan</option><option value="JPG">JPG</option><option value="MP4">MP4</option></select></label>
       <div class="f"><span>Cómo acomodarlo</span><div class="seg"><button type="button" id="genCrop" aria-pressed="true">Recortar orillas</button><button type="button" id="genFill" aria-pressed="false">Rellenar orillas</button></div></div>
     </div>
+    <label class="f" id="genTWrap" hidden><span>Cuadro del video para la imagen fija: <b id="genTVal"></b></span><input type="range" id="genT" min="0" step="0.1"></label>
     <div class="genprev"><canvas id="genCanvas"></canvas></div>
     <p class="hint" id="genInfo"></p>
     <div class="row"><div class="spacer"></div><button type="button" id="genCancel">Cancelar</button><button type="button" class="primary" id="genOk">Usar este arte</button></div>
@@ -877,19 +878,24 @@ function adaptPlan(e, s) {
   const sp = specOf(s), d = fileDims(e), i = e.info || {};
   // Formato: si el proveedor no acepta el del arte, se convierte a uno que sí acepte (JPG, PNG o WEBP)
   const fl = fmtList(s.formatos);
-  const decodable = e.kind === "image" && /^(JPG|PNG|WEBP|GIF)$/.test(e.ext);
-  const po = pickOut(fl, sp.digital && decodable, e.ext), outExt = po.ext, fmtOk = outExt === e.ext;
+  const isVid = e.kind === "video" && VID_EXT.test(e.ext);
+  const decodable = (e.kind === "image" && /^(JPG|PNG|WEBP|GIF)$/.test(e.ext)) || (isVid && sp.digital);
+  // Un video en formato que el proveedor no acepta (MOV, WEBM) se pasa a MP4 si lo acepta; si no, a imagen
+  const cur = isVid && fl.length && !fl.includes(e.ext) && fl.includes("MP4") ? "MP4" : e.ext;
+  const po = pickOut(fl, sp.digital && decodable, cur), outExt = po.ext, fmtOk = outExt === e.ext;
   const durV = +s.duracionSeg || 10;
-  const convNota = !fmtOk && outExt === "MP4" ? ` Se crea un video MP4 de ${durV} s con la imagen fija (sin audio).`
+  const convNota = isVid && outExt === "MP4" ? (fmtOk ? " El video se vuelve a codificar completo, sin audio." : ` Se pasa de ${e.ext} a MP4, sin audio.`)
+    : isVid && outExt ? ` Se toma el último cuadro del video como imagen ${outExt}. Si quieres otro momento del video, usa "Generar desde otro arte".`
+    : !fmtOk && outExt === "MP4" ? ` Se crea un video MP4 de ${durV} s con la imagen fija (sin audio).`
     : !fmtOk && outExt ? ` Se convierte de ${e.ext} a ${outExt}${outExt === "JPG" && e.ext !== "JPG" ? " (si tiene fondo transparente, queda en blanco)" : ""}.` : "";
   const convNotaF = convNota + po.aviso;
-  const enFmt = outExt === "MP4" ? ` en MP4 (${durV} s)` : ` en ${outExt}`;
+  const enFmt = outExt === "MP4" ? (isVid ? " en MP4" : ` en MP4 (${durV} s)`) : ` en ${outExt}`;
   if (sp.digital) {
     if (d.vec || !decodable || !outExt || (!RASTER_OUT[outExt] && outExt !== "MP4")) return null;
     const sizeOk = d.w === sp.W && d.h === sp.H;
     if (sizeOk && fmtOk) return null;
     if (!near(d.w / d.h, sp.W / sp.H, Math.max(sp.tol, 0.2))) return fmtOk ? null : { tipo: "resize", aviso: po.aviso, W: d.w, H: d.h, outExt, dur: durV, label: `Convertir a ${outExt}`, nota: `Solo cambia el formato; la medida sigue sin coincidir.${convNotaF}` };
-    if (sizeOk) return { tipo: "resize", aviso: po.aviso, W: d.w, H: d.h, outExt, dur: durV, label: outExt === "MP4" ? `Convertir a MP4 (${durV} s)` : `Convertir a ${outExt}`, nota: `Misma medida y mismo contenido.${convNotaF}` };
+    if (sizeOk) return { tipo: "resize", aviso: po.aviso, W: d.w, H: d.h, outExt, dur: durV, label: outExt === "MP4" && !isVid ? `Convertir a MP4 (${durV} s)` : `Convertir a ${outExt}`, nota: `Misma medida y mismo contenido.${convNotaF}` };
     const up = d.w < sp.W;
     return { tipo: "resize", aviso: po.aviso, W: sp.W, H: sp.H, outExt, dur: durV, label: `Adaptar a ${sp.W}×${sp.H} px${fmtOk ? "" : enFmt}`, nota: (up ? `Se agranda ${nf(sp.W / d.w * 100, 0)} %; revisa que no se vea pixeleado.` : "Se reduce de tamaño sin deformar ni mover nada.") + convNotaF };
   }
@@ -972,14 +978,13 @@ async function drawResized(file, W, H, ext) {
 /* MP4 (H.264) con una imagen fija, hecho en el navegador con WebCodecs */
 let muxP = null;
 const mp4mux = () => muxP ||= loadScript("https://cdn.jsdelivr.net/npm/mp4-muxer@5.1.3/build/mp4-muxer.js").then(() => window.Mp4Muxer).catch(e => { muxP = null; throw e; });
-async function encodeStillMP4(canvas, seconds, fps = 30) {
+// Escritor MP4: recibe cuadros (canvas) y arma el archivo. H.264 solo admite medidas pares:
+// si la pantalla es impar (ej. 1152×675) el video sale 1 px más grande (1152×676)
+async function mp4Writer(w, h, fps = 30) {
   if (!window.VideoEncoder || !window.VideoFrame) throw new Error("Este navegador no puede crear videos MP4. Usa Chrome o Edge actualizados.");
-  // H.264 solo admite medidas pares: si la pantalla es impar (ej. 1152×675) el video sale 1 px más grande (1152×676)
-  if (canvas.width % 2 || canvas.height % 2) {
-    const c2 = document.createElement("canvas"); c2.width = canvas.width + canvas.width % 2; c2.height = canvas.height + canvas.height % 2;
-    const g2 = c2.getContext("2d"); g2.imageSmoothingQuality = "high"; g2.drawImage(canvas, 0, 0, c2.width, c2.height); canvas = c2;
-  }
-  const W = canvas.width, H = canvas.height;
+  const W = w + w % 2, H = h + h % 2;
+  let pad = null;
+  if (W !== w || H !== h) { pad = document.createElement("canvas"); pad.width = W; pad.height = H; }
   let config = null;
   for (const codec of ["avc1.640033", "avc1.640034", "avc1.4d0033", "avc1.42003e"]) {
     const c = { codec, width: W, height: H, bitrate: Math.min(16e6, Math.max(2e6, W * H * 2)), framerate: fps, avc: { format: "avc" } };
@@ -988,21 +993,82 @@ async function encodeStillMP4(canvas, seconds, fps = 30) {
   if (!config) throw new Error(`Este navegador no puede crear un MP4 de ${W}×${H}. Prueba en Chrome o Edge actualizados.`);
   const M = await mp4mux();
   const target = new M.ArrayBufferTarget();
-  const muxer = new M.Muxer({ target, video: { codec: "avc", width: W, height: H, frameRate: fps }, fastStart: "in-memory" });
+  const muxer = new M.Muxer({ target, video: { codec: "avc", width: W, height: H, frameRate: fps }, fastStart: "in-memory", firstTimestampBehavior: "offset" });
   let fail = null;
   const enc = new VideoEncoder({ output: (chunk, meta) => muxer.addVideoChunk(chunk, meta), error: e => { fail = e; } });
   enc.configure(config);
+  return {
+    add(canvas, ts, dur, key) {
+      if (fail) throw fail;
+      let src = canvas;
+      if (pad) { const g = pad.getContext("2d"); g.imageSmoothingQuality = "high"; g.drawImage(canvas, 0, 0, W, H); src = pad; }
+      const fr = new VideoFrame(src, { timestamp: Math.round(ts), duration: Math.round(dur) });
+      enc.encode(fr, { keyFrame: key }); fr.close();
+    },
+    async wait() { while (enc.encodeQueueSize > 20) await new Promise(r => setTimeout(r, 5)); if (fail) throw fail; },
+    async finish() {
+      await enc.flush(); enc.close();
+      if (fail) throw fail;
+      muxer.finalize();
+      return new Blob([target.buffer], { type: "video/mp4" });
+    },
+  };
+}
+/* MP4 (H.264) con una imagen fija, hecho en el navegador con WebCodecs */
+async function encodeStillMP4(canvas, seconds, fps = 30) {
+  const wr = await mp4Writer(canvas.width, canvas.height, fps);
   const total = Math.round(seconds * fps), dt = 1e6 / fps;
-  for (let i = 0; i < total; i++) {
-    const fr = new VideoFrame(canvas, { timestamp: Math.round(i * dt), duration: Math.round(dt) });
-    enc.encode(fr, { keyFrame: i % fps === 0 }); fr.close();
-    if (fail) throw fail;
-    while (enc.encodeQueueSize > 20) await new Promise(r => setTimeout(r, 5));
-  }
-  await enc.flush(); enc.close();
-  if (fail) throw fail;
-  muxer.finalize();
-  return new Blob([target.buffer], { type: "video/mp4" });
+  for (let i = 0; i < total; i++) { wr.add(canvas, i * dt, dt, i % fps === 0); await wr.wait(); }
+  return wr.finish();
+}
+/* Videos de origen: abrir, sacar un cuadro y volver a codificar a otra medida (sin audio) */
+const VID_EXT = /^(MP4|MOV|M4V|WEBM)$/;
+function openVideo(file) {
+  return new Promise((res, rej) => {
+    const v = document.createElement("video"); v.muted = true; v.playsInline = true; v.preload = "auto";
+    v.onloadeddata = () => res(v);
+    v.onerror = () => rej(new Error("El navegador no puede leer este video (prueba MP4 H.264)."));
+    v.src = URL.createObjectURL(file);
+  });
+}
+// t = segundo del video; sin t se usa el último cuadro (donde suele ir el cierre con marca y legales)
+async function videoFrame(file, t) {
+  const v = await openVideo(file);
+  const end = Math.max(0, (v.duration || 0) - 0.1), tt = t == null ? end : Math.min(Math.max(0, t), end);
+  if (Math.abs(v.currentTime - tt) > 0.01) await new Promise(r => { v.onseeked = r; v.currentTime = tt; setTimeout(r, 5000); });
+  const b = await createImageBitmap(v); URL.revokeObjectURL(v.src); v.removeAttribute("src"); v.load();
+  return b;
+}
+async function encodeVideoMP4(file, W, H, draw, onProg) {
+  const v = await openVideo(file);
+  if (!v.requestVideoFrameCallback) throw new Error("Este navegador no puede convertir videos. Usa Chrome o Edge actualizados.");
+  const c = document.createElement("canvas"); c.width = W; c.height = H;
+  const wr = await mp4Writer(W, H, 30);
+  let last = -1, lastKey = -1e9, err = null;
+  try {
+    await new Promise((res, rej) => {
+      const step = (now, meta) => {
+        if (err) return;
+        if (!v.ended) v.requestVideoFrameCallback(step);
+        const t = meta.mediaTime; if (t <= last) return; last = t;
+        try { draw(c, v); const key = t - lastKey >= 1; if (key) lastKey = t; wr.add(c, t * 1e6, 1e6 / 30, key); } catch (e) { err = e; rej(e); }
+        if (onProg && v.duration) onProg(t / v.duration);
+      };
+      v.requestVideoFrameCallback(step);
+      v.onended = () => setTimeout(res, 150);
+      v.onerror = () => rej(new Error("No se pudo reproducir el video."));
+      v.play().catch(rej);
+    });
+  } finally { v.pause(); URL.revokeObjectURL(v.src); }
+  if (err) throw err;
+  return wr.finish();
+}
+async function videoStill(file, W, H, ext, t, draw) {
+  const b = await videoFrame(file, t);
+  const c = document.createElement("canvas"); c.width = W; c.height = H;
+  const g = c.getContext("2d"); g.imageSmoothingQuality = "high"; g.fillStyle = "#ffffff"; g.fillRect(0, 0, W, H);
+  if (draw) draw(c, b); else g.drawImage(b, 0, 0, W, H);
+  return new Promise(res => c.toBlob(res, RASTER_OUT[ext] || "image/jpeg", 0.95));
 }
 let pdflibP = null;
 const pdflib = () => pdflibP ||= loadScript("https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js").then(() => window.PDFLib).catch(e => { pdflibP = null; throw e; });
@@ -1023,7 +1089,10 @@ async function runAdapt(e, plan, btn) {
   try {
     let blob;
     const ext = plan.outExt || e.ext;
-    if (plan.tipo === "resize") {
+    if (plan.tipo === "resize" && e.kind === "video") {
+      if (ext === "MP4") blob = await encodeVideoMP4(e.file, plan.W, plan.H, (c, v) => c.getContext("2d").drawImage(v, 0, 0, c.width, c.height), btn ? f => { btn.textContent = `Convirtiendo video… ${Math.round(f * 100)} %`; } : null);
+      else blob = await videoStill(e.file, plan.W, plan.H, ext);
+    } else if (plan.tipo === "resize") {
       if (ext === "MP4" && btn) btn.textContent = "Creando video…";
       blob = await resizeImage(e.file, plan.W, plan.H, ext, plan.dur);
       if (plan.dpi && (ext === "JPG" || ext === "PNG")) { const b = new Uint8Array(await blob.arrayBuffer()); blob = new Blob([ext === "JPG" ? setDpiJPEG(b, plan.dpi) : setDpiPNG(b, plan.dpi)]); }
@@ -1050,8 +1119,8 @@ function genSources(q) {
   const r = q.ancho / q.alto;
   // Nunca se genera a partir de otro arte generado: siempre desde un arte de la agencia
   // Si un arte se adaptó (por ejemplo, se convirtió a MP4), se usa su original de la agencia, que es una imagen
-  const raster = e => e && e.status === "listo" && !e.generado && e.kind === "image" && /^(JPG|PNG|WEBP|GIF)$/.test(e.ext) && e.info && e.info.w;
-  const pool = [...new Set(S.files.map(e => raster(e) ? e : raster(e.original) ? e.original : null).filter(Boolean))];
+  const raster = e => e && e.status === "listo" && !e.generado && ((e.kind === "image" && /^(JPG|PNG|WEBP|GIF)$/.test(e.ext)) || (e.kind === "video" && VID_EXT.test(e.ext))) && e.info && e.info.w;
+  const pool = [...new Set(S.files.map(e => raster(e.original) ? e.original : raster(e) ? e : null).filter(Boolean))];
   return pool.filter(e => !(e.info.w === q.ancho && e.info.h === q.alto))
     .map(e => {
       const diff = pct(e.info.w / e.info.h, r);
@@ -1070,29 +1139,34 @@ async function openGen(q) {
   $("#genEyebrow").textContent = "Generar arte" + (q.ubicaciones && q.ubicaciones.length ? " · " + q.ubicaciones.map(u => u.ubi).filter(Boolean).join(", ") : "");
   GEN.srcs = srcs;
   $("#genSrc").replaceChildren(...srcs.map((x, k) => el("option", { value: x.e.id, selected: k === 0, text: `${k === 0 ? "★ Recomendado: " : ""}${x.e.file.name} — ${x.e.info.w}×${x.e.info.h} px` })));
-  GEN.mode = srcs[0].diff > 8 ? "fill" : "crop";
+  GEN.mode = srcs[0].diff > 8 ? "fill" : "crop"; GEN.t = null;
   GEN.fmt = S.outFmt; $("#genFmt").value = S.outFmt;
   $("#genModal").hidden = false;
   await genLoad();
 }
 async function genLoad() {
   GEN.src = (GEN.srcs || []).map(x => x.e).find(e => String(e.id) === $("#genSrc").value);
-  try { GEN.bmp = await createImageBitmap(GEN.src.file); } catch { GEN.bmp = null; toast("No se pudo abrir ese arte"); return; }
+  const vid = GEN.src && GEN.src.kind === "video", tw = $("#genTWrap"), ti = $("#genT");
+  tw.hidden = !vid;
+  if (vid) { const dur = GEN.src.info.dur || 0; ti.max = Math.max(0, dur - 0.1).toFixed(1); if (GEN.t == null || GEN.t > dur) GEN.t = +ti.max; ti.value = GEN.t; $("#genTVal").textContent = `${nf(GEN.t)} s de ${nf(dur)} s`; }
+  try { GEN.bmp = vid ? await videoFrame(GEN.src.file, GEN.t) : await createImageBitmap(GEN.src.file); } catch { GEN.bmp = null; toast("No se pudo abrir ese arte"); return; }
   genDraw();
 }
 function genRender(c, o = GEN) {
   const W = o.q.ancho, H = o.q.alto, b = o.bmp, g = c.getContext("2d");
-  c.width = W; c.height = H; g.imageSmoothingQuality = "high";
-  const cover = Math.max(W / b.width, H / b.height), contain = Math.min(W / b.width, H / b.height);
+  if (c.width !== W || c.height !== H) { c.width = W; c.height = H; }
+  g.imageSmoothingQuality = "high";
+  const bw = b.videoWidth || b.width, bh = b.videoHeight || b.height;
+  const cover = Math.max(W / bw, H / bh), contain = Math.min(W / bw, H / bh);
   g.fillStyle = "#ffffff"; g.fillRect(0, 0, W, H);
   if (o.mode === "crop") {
-    const w = b.width * cover, h = b.height * cover; g.drawImage(b, (W - w) / 2, (H - h) / 2, w, h);
+    const w = bw * cover, h = bh * cover; g.drawImage(b, (W - w) / 2, (H - h) / 2, w, h);
   } else {
-    const w = b.width * cover, h = b.height * cover;
+    const w = bw * cover, h = bh * cover;
     const bl = Math.round(Math.max(W, H) / 40), m = bl * 3;
     g.save(); try { g.filter = "blur(" + bl + "px)"; } catch {}
     g.drawImage(b, (W - w) / 2 - m, (H - h) / 2 - m, w + 2 * m, h + 2 * m); g.restore();
-    const w2 = b.width * contain, h2 = b.height * contain; g.drawImage(b, (W - w2) / 2, (H - h2) / 2, w2, h2);
+    const w2 = bw * contain, h2 = bh * contain; g.drawImage(b, (W - w2) / 2, (H - h2) / 2, w2, h2);
   }
   return { cover, contain };
 }
@@ -1116,7 +1190,9 @@ function genDraw() {
   parts.push("El nuevo archivo se marca como generado por la app para que el proveedor y la agencia lo sepan si preguntan.");
   $("#genInfo").textContent = parts.join(" ");
 }
-$("#genSrc").onchange = genLoad;
+$("#genSrc").onchange = () => { GEN.t = null; genLoad(); };
+$("#genT").onchange = ev => { GEN.t = +ev.target.value; genLoad(); };
+$("#genT").oninput = ev => { $("#genTVal").textContent = `${nf(+ev.target.value)} s de ${nf(GEN.src && GEN.src.info.dur || 0)} s`; };
 $("#genFmt").onchange = ev => { GEN.fmt = ev.target.value; };
 document.querySelectorAll(".outFmt").forEach(x => { x.value = S.outFmt; x.onchange = ev => { S.outFmt = ev.target.value; lsSet("va.outFmt", S.outFmt); document.querySelectorAll(".outFmt").forEach(y => { y.value = S.outFmt; }); renderResults(); }; });
 $("#genCrop").onclick = () => { GEN.mode = "crop"; genDraw(); };
@@ -1125,20 +1201,28 @@ $("#genCancel").onclick = () => { $("#genModal").hidden = true; };
 $("#genModal").addEventListener("keydown", ev => { if (ev.key === "Escape") $("#genModal").hidden = true; });
 async function generateFor(o) {
   const q = o.q, src = o.src;
-  const fl = fmtList(q.formatos), po = pickOut(fl, q.tipo !== "impreso", null, o.fmt || S.outFmt), ext = po.ext || "JPG";
-  const c = document.createElement("canvas"); genRender(c, o);
-  const blob = ext === "MP4" ? await encodeStillMP4(c, +q.duracionSeg || 10) : await new Promise(res => c.toBlob(res, RASTER_OUT[ext], 0.95));
+  const vid = src.kind === "video";
+  const fl = fmtList(q.formatos), po = pickOut(fl, q.tipo !== "impreso", vid ? "MP4" : null, o.fmt || S.outFmt), ext = po.ext || "JPG";
+  let blob;
+  if (vid && ext === "MP4") blob = await encodeVideoMP4(src.file, q.ancho, q.alto, (c, v) => genRender(c, { ...o, bmp: v }), o.onProg);
+  else {
+    const c = document.createElement("canvas"); genRender(c, o);
+    blob = ext === "MP4" ? await encodeStillMP4(c, +q.duracionSeg || 10) : await new Promise(res => c.toBlob(res, RASTER_OUT[ext], 0.95));
+  }
   const base = src.file.name.replace(/\.[^.]+$/, "").replace(/_?\d{3,5}\s*[xX×]\s*\d{3,5}/, "");
   const nm = `${base}_${q.ancho}x${q.alto}_generado.${ext === "JPG" ? "jpg" : ext.toLowerCase()}`;
   const f = new File([blob], nm, { type: MIME[ext] });
   const modo = o.mode === "crop" ? "recortando orillas" : "rellenando orillas";
-  const ne = { id: ++seq, file: f, name: nm, ext, sizeMB: f.size / 1048576, status: "leyendo", info: null, sel: q.id, generado: true, adaptado: `Generado por la app desde ${src.file.name}, ${modo}${ext === "MP4" ? `, en MP4 de ${+q.duracionSeg || 10} s` : ""}${o.auto ? " (en automático; revísalo)" : ""}.${po.aviso}` };
+  const ne = { id: ++seq, file: f, name: nm, ext, sizeMB: f.size / 1048576, status: "leyendo", info: null, sel: q.id, generado: true, adaptado: `Generado por la app desde ${src.file.name}, ${modo}${vid && ext === "MP4" ? ", con el video completo (sin audio)" : vid ? `, con el cuadro del segundo ${nf(o.t != null ? o.t : Math.max(0, (src.info.dur || 0) - 0.1))} del video` : ext === "MP4" ? `, en MP4 de ${+q.duracionSeg || 10} s` : ""}${o.auto ? " (en automático; revísalo)" : ""}.${po.aviso}` };
   S.files.push(ne); track(ne);
   return ne;
 }
 $("#genOk").onclick = async () => {
   if (!GEN.q || !GEN.bmp) return;
-  await generateFor(GEN);
+  const b = $("#genOk"), lbl = b.textContent; b.disabled = true; b.textContent = "Creando…";
+  try { await generateFor({ ...GEN, onProg: f => { b.textContent = `Convirtiendo video… ${Math.round(f * 100)} %`; } }); }
+  catch (err) { toast("No se pudo generar: " + (err && err.message || err)); return; }
+  finally { b.disabled = false; b.textContent = lbl; }
   $("#genModal").hidden = true; toast(`Arte de ${GEN.q.nombre} generado`); renderResults();
 };
 let PEND = [];
@@ -1149,7 +1233,7 @@ async function generateAll(btn) {
   for (const q of todo) {
     btn.textContent = `Generando ${++n} de ${todo.length}…`;
     const best = genSources(q)[0];
-    try { const bmp = await createImageBitmap(best.e.file); await generateFor({ q, src: best.e, bmp, mode: best.diff > 8 ? "fill" : "crop", auto: true }); } catch (err) { console.error(err); }
+    try { const bmp = best.e.kind === "video" ? await videoFrame(best.e.file) : await createImageBitmap(best.e.file); await generateFor({ q, src: best.e, bmp, mode: best.diff > 8 ? "fill" : "crop", auto: true }); } catch (err) { console.error(err); }
   }
   btn.disabled = false; renderResults();
   toast(`${n} arte${n > 1 ? "s" : ""} generado${n > 1 ? "s" : ""}. Revísalos en Resultados; dicen “Generado”.`);
