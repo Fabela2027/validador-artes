@@ -1186,7 +1186,9 @@ function genSources(q) {
   return all.map(x => {
     const ra = x.e.info.w / x.e.info.h, llena = Math.min(ra / r, r / ra);
     const upC = Math.min(q.ancho / x.e.info.w, q.alto / x.e.info.h);
-    return { ...x, lejos: true, llena, score: (1 - llena) * 100 + Math.max(0, upC - 1) * 25 };
+    // Primero los artes con la misma orientación (vertical con vertical, horizontal con horizontal)
+    const mismaOr = (ra >= 1) === (r >= 1);
+    return { ...x, lejos: true, llena, score: (1 - llena) * 100 + Math.max(0, upC - 1) * 25 + (mismaOr ? 0 : 100) };
   }).filter(x => x.llena >= 0.25).sort(orden);
 }
 const GEN = { q: null, src: null, mode: "crop", bmp: null };
