@@ -131,6 +131,11 @@ details ul{margin:4px 0 0;padding-left:16px;font-size:.8rem;color:var(--muted)}
 .tag.ad{background:var(--info-soft);color:var(--info)}
 .rside .hint{max-width:240px;text-align:right;font-size:.76rem}
 @media (max-width:760px){.rside .hint{text-align:left}}
+.genbar{display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px;margin:10px 0 12px;padding:12px 14px;border-radius:12px;background:color-mix(in srgb,var(--warn) 12%,transparent);border:1px solid color-mix(in srgb,var(--warn) 35%,transparent)}
+.genbar .hint{margin:2px 0 0}
+#planTable td.artes{overflow-wrap:anywhere;min-width:220px;max-width:340px;font-size:.85rem}
+#planTable .acts{min-width:150px}
+.acts{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
 .login{position:fixed;inset:0;z-index:40;display:grid;place-items:center;align-content:center;gap:22px;padding:24px max(16px,env(safe-area-inset-left,0px));background:linear-gradient(90deg,#f44a64,#f78165);overflow:auto}
 .login .logo{color:#fff;height:46px;width:auto}
 .login form{width:min(380px,100%);background:var(--surface);border-radius:14px;padding:28px;display:flex;flex-direction:column;gap:14px;box-shadow:0 18px 40px rgb(120 30 45/.25)}
@@ -204,6 +209,7 @@ details ul{margin:4px 0 0;padding-left:16px;font-size:.8rem;color:var(--muted)}
     <div class="panel" id="planBox" hidden>
       <div class="row"><div><div class="eyebrow" id="planEyebrow">Plan de campaña</div><h2 id="planTitle"></h2></div><div class="spacer"></div><div class="summary" id="planSummary"></div></div>
       <p class="hint" id="planHint"></p>
+      <div class="genbar" id="planGen" hidden><div><b id="planGenTitle"></b><p class="hint" id="planGenHint"></p></div><div class="spacer"></div><button type="button" class="primary" id="planGenAll"></button></div>
       <div class="tablewrap"><table id="planTable"></table></div>
     </div>
 
@@ -671,6 +677,20 @@ function parseMedida(txt) {
   if (!u) u = (Number.isInteger(w) && Number.isInteger(h) && Math.max(w, h) >= 100) ? "px" : "cm";
   return { w, h, u };
 }
+// Una celda puede traer varias medidas para el mismo sitio, ej. "Antepecho: 2288x312 / Columna: 512x1728"
+// o "Pantalla 1: 1960x480 px  Pantalla 2: 1960x200 px" o "256x720/120x200". Cada una es un arte aparte.
+function parseMedidas(txt) {
+  const t = String(txt || "").replace(/,/g, ".");
+  const re = /(\d+(?:\.\d+)?)\s*[xX×*]\s*(\d+(?:\.\d+)?)\s*(px|cm|mm|m|pulg|in)?/gi;
+  const out = []; let m, prev = 0;
+  while ((m = re.exec(t))) {
+    const med = parseMedida(m[0]);
+    const label = t.slice(prev, m.index).replace(/[\s:;\/|\-–·]+/g, " ").replace(/^(px|cm|mm|m|y)\b/i, "").trim();
+    if (med) out.push({ ...med, label: label.length <= 40 ? label : "" });
+    prev = re.lastIndex;
+  }
+  return out;
+}
 function readPlanRows(rows, fileName) {
   let hi = -1;
   for (let i = 0; i < Math.min(rows.length, 25); i++) if ((rows[i] || []).some(c => /MEDIDA/i.test(String(c)))) { hi = i; break; }
@@ -678,21 +698,25 @@ function readPlanRows(rows, fileName) {
   const H = rows[hi].map(c => String(c || "").trim());
   const col = re => H.findIndex(h => re.test(h));
   const c = { med: col(/MEDIDA/i), prov: col(/MEDIA\s*OWNER|PROVEEDOR/i), ubi: col(/UBICACI/i), ciudad: col(/CIUDAD|PLAZA/i), venue: col(/VENUE|TIPO/i), fmt: col(/FORMATO/i), dur: col(/DURACI/i), camp: col(/CAMPA/i) };
-  const byKey = new Map(); let n = 0, sinMedida = 0, nombre = "";
+  const byKey = new Map(); let n = 0, sinMedida = 0, nombre = "", multi = 0;
   for (let i = hi + 1; i < rows.length; i++) {
     const r = rows[i] || []; const get = k => c[k] >= 0 ? String(r[c[k]] ?? "").trim() : "";
-    const med = parseMedida(get("med"));
-    if (!med) { if (get("prov") || get("ubi")) sinMedida++; continue; }
+    const meds = parseMedidas(get("med"));
+    if (!meds.length) { if (get("prov") || get("ubi")) sinMedida++; continue; }
     n++; if (!nombre && get("camp")) nombre = get("camp");
+    if (meds.length > 1) multi++;
+    for (const [k, med] of meds.entries()) {
     const prov = get("prov") || "Sin media owner", fmts = fmtList(get("fmt")).filter((v, k, a) => a.indexOf(v) === k).join(", ");
     const dur = parseFloat(get("dur").replace(",", ".")) || null;
     const key = [prov.toLowerCase(), med.w, med.h, med.u, fmts, dur].join("|");
     if (!byKey.has(key)) byKey.set(key, { id: "plan-" + byKey.size, plan: true, proveedor: prov, nombre: `${med.w}×${med.h} ${med.u}`, tipo: med.u === "px" ? "digital" : "impreso", ancho: med.w, alto: med.h, unidad: med.u, escala: 100, formatos: fmts, duracionSeg: dur, tolerancia: 1, notas: "", ubicaciones: [] });
-    byKey.get(key).ubicaciones.push({ ubi: get("ubi"), ciudad: get("ciudad"), venue: get("venue") });
+    const pieza = meds.length > 1 ? (med.label || `medida ${k + 1} de ${meds.length}`) : "";
+    byKey.get(key).ubicaciones.push({ ubi: (get("ubi") || "Sin ubicación") + (pieza ? ` (${pieza})` : ""), ciudad: get("ciudad"), venue: get("venue"), pieza });
+    }
   }
   if (!n) throw new Error("El plan no tiene filas con medidas que pueda leer.");
   const reqs = [...byKey.values()].sort((a, b) => a.proveedor.localeCompare(b.proveedor, "es") || b.ancho * b.alto - a.ancho * a.alto);
-  return { nombre: nombre || fileName.replace(/\.[^.]+$/, ""), archivo: fileName, filas: n, sinMedida, reqs };
+  return { nombre: nombre || fileName.replace(/\.[^.]+$/, ""), archivo: fileName, filas: n, sinMedida, multi, reqs };
 }
 async function loadPlan(file) {
   const btn = $("#pickPlan"); btn.disabled = true; btn.textContent = "Leyendo plan…";
@@ -722,29 +746,53 @@ function renderPlan() {
   const P = S.plan;
   $("#planTitle").textContent = P.nombre;
   $("#planEyebrow").textContent = `Plan de campaña · ${P.archivo}`;
-  const cover = new Map(P.reqs.map(r => [r.id, { ok: [], warn: [] }]));
+  const cover = new Map(P.reqs.map(r => [r.id, { ok: [], warn: [], conv: [] }]));
   for (const e of S.files) { const r = resultFor(e); if (!r || !r.s) continue; for (const m of r.matches || []) { const c = cover.get(m.s.id); if (c) c[m.v === "ok" ? "ok" : "warn"].push(e); } }
+  // Arte que sí llegó a la medida pero en un formato que el proveedor no acepta (ej. PNG o MP4 donde piden JPG): se puede convertir
+  for (const e of S.files) {
+    if (e.status !== "listo") continue; const d = fileDims(e); if (d.vec) continue;
+    for (const q of P.reqs) { const c = cover.get(q.id); if (q.tipo !== "digital" || c.ok.includes(e) || c.warn.includes(e)) continue;
+      if ((d.w === +q.ancho && d.h === +q.alto) || (e.kind === "video" && evenMatch(d, { W: +q.ancho, H: +q.alto }))) { const ap = adaptPlan(e, q); if (ap && ap.outExt && ap.outExt !== e.ext) c.conv.push(e); } }
+  }
   let cub = 0, obs = 0, falta = 0; const ubiFalta = [];
-  for (const q of P.reqs) { const c = cover.get(q.id); if (c.ok.length) cub += q.ubicaciones.length; else if (c.warn.length) obs += q.ubicaciones.length; else { falta += q.ubicaciones.length; ubiFalta.push(q); } }
+  for (const q of P.reqs) { const c = cover.get(q.id); if (c.ok.length) cub += q.ubicaciones.length; else if (c.warn.length || c.conv.length) obs += q.ubicaciones.length; else { falta += q.ubicaciones.length; ubiFalta.push(q); } }
   const sm = $("#planSummary"); sm.replaceChildren();
   if (cub) sm.append(el("span", { class: "count c-ok", text: `${cub} ubicaciones con arte` }));
   if (obs) sm.append(el("span", { class: "count c-warn", text: `${obs} con observaciones` }));
   if (falta) sm.append(el("span", { class: "count c-err", text: `${falta} sin arte` }));
-  $("#planHint").textContent = `${P.filas} ubicaciones agrupadas en ${P.reqs.length} medidas por media owner.` + (P.sinMedida ? ` ${P.sinMedida} filas no traen medida y no se revisan.` : "") + (S.files.length ? "" : " Sube los artes para ver cuáles medidas ya tienen arte.");
+  $("#planHint").textContent = `${P.filas} ubicaciones agrupadas en ${P.reqs.length} medidas por media owner.` + (P.multi ? ` ${P.multi} ${P.multi === 1 ? "sitio pide" : "sitios piden"} más de una medida (ej. antepecho y columna); cada medida necesita su propio arte.` : "") + (P.sinMedida ? ` ${P.sinMedida} filas no traen medida y no se revisan.` : "") + (S.files.length ? "" : " Sube los artes para ver cuáles medidas ya tienen arte.");
   const t = $("#planTable"); t.replaceChildren();
-  t.append(el("thead", null, el("tr", null, ["Media owner", "Medida", "Formatos", "Duración", "Ubicaciones", "Artes", ""].map(h => el("th", { text: h })))));
+  t.append(el("thead", null, el("tr", null, ["Media owner", "Medida", "Estado", "Formatos", "Duración", "Ubicaciones", "Artes"].map(h => el("th", { text: h })))));
   const tb = el("tbody");
   for (const q of P.reqs) {
-    const c = cover.get(q.id), st = c.ok.length ? "ok" : c.warn.length ? "warn" : "err";
+    const c = cover.get(q.id), st = c.ok.length ? "ok" : c.warn.length ? "warn" : c.conv.length ? "conv" : "err";
     const ciudades = [...new Set(q.ubicaciones.map(u => u.ciudad).filter(Boolean))].join(", ");
     const det = el("details", null, el("summary", { text: `${q.ubicaciones.length} ${q.ubicaciones.length === 1 ? "ubicación" : "ubicaciones"}${ciudades ? " · " + ciudades : ""}` }), el("ul", null, q.ubicaciones.map(u => el("li", { text: [u.ubi, u.venue, u.ciudad].filter(Boolean).join(" · ") }))));
-    const artes = c.ok.concat(c.warn).map(e => e.file.name);
+    const artes = c.ok.concat(c.warn).map(e => e.file.name).concat(st === "conv" ? c.conv.map(e => `${e.file.name} (llegó en ${e.ext})`) : []);
     tb.append(el("tr", { class: st === "err" ? "falta" : "" },
-      el("td", { text: q.proveedor }), el("td", { class: "num", text: q.nombre }), el("td", { text: q.formatos || "—" }), el("td", { class: "num", text: q.duracionSeg ? q.duracionSeg + " s" : "—" }),
-      el("td", { class: "wrap" }, det), el("td", { class: "wrap", text: artes.join(", ") || "—" }),
-      el("td", null, el("span", { class: "pill p-" + st, text: st === "ok" ? "Con arte" : st === "warn" ? "Revisar" : "Falta arte" }))));
+      el("td", { text: q.proveedor }), el("td", { class: "num", text: q.nombre }),
+      el("td", null, el("div", { class: "acts" }, el("span", { class: "pill p-" + (st === "conv" ? "warn" : st), text: st === "ok" ? "Con arte" : st === "warn" ? "Revisar" : st === "conv" ? "Falta convertir" : "Falta arte" }), ...planActs(q, st, c))),
+      el("td", { text: q.formatos || "—" }), el("td", { class: "num", text: q.duracionSeg ? q.duracionSeg + " s" : "—" }),
+      el("td", { class: "ubis" }, det), el("td", { class: "artes", text: artes.join(", ") || "—" })));
   }
   t.append(tb);
+  // Aviso con un solo botón para hacer todas las medidas que faltan
+  const pend = P.reqs.filter(q => { const c = cover.get(q.id); return !c.ok.length && !c.warn.length; });
+  const conv = pend.filter(q => cover.get(q.id).conv.length), gen = pend.filter(q => !cover.get(q.id).conv.length && genSources(q).length), sin = pend.length - conv.length - gen.length;
+  const gb = $("#planGen"); gb.hidden = !S.files.length || !(conv.length + gen.length);
+  if (!gb.hidden) {
+    $("#planGenTitle").textContent = `Faltan ${pend.length} ${pend.length === 1 ? "medida" : "medidas"}. La app puede hacer ${conv.length + gen.length}.`;
+    $("#planGenHint").textContent = [conv.length ? `${conv.length} ya tienen arte pero en un formato que el proveedor no acepta; se convierten.` : "", gen.length ? `${gen.length} se hacen a partir del arte que mejor se parece; revísalas después, dicen “Generado”.` : "", sin ? `${sin} no tienen ningún arte parecido; pídelas a la agencia.` : ""].filter(Boolean).join(" ");
+    const b = $("#planGenAll"); if (!b.disabled) b.textContent = conv.length + gen.length === 1 ? "Hacer la que falta" : `Hacer las ${conv.length + gen.length} que faltan`;
+    b.onclick = async () => {
+      b.disabled = true; let n = 0; const tot = conv.length + gen.length;
+      try {
+        for (const q of conv) { b.textContent = `Haciendo ${++n} de ${tot}…`; const e = cover.get(q.id).conv[0]; const ap = adaptPlan(e, q); if (ap && S.files.includes(e)) { try { await runAdapt(e, ap); } catch (err) { console.error(err); } } }
+        for (const q of gen) { b.textContent = `Haciendo ${++n} de ${tot}…`; await generateOne(q); }
+      } finally { b.disabled = false; renderResults(); }
+      toast(`Listo: ${n} ${n === 1 ? "medida hecha" : "medidas hechas"}. Revisa las que dicen “Generado”.`);
+    };
+  }
 }
 
 /* ---------------- evaluación ---------------- */
@@ -1225,6 +1273,26 @@ $("#genOk").onclick = async () => {
   finally { b.disabled = false; b.textContent = lbl; }
   $("#genModal").hidden = true; toast(`Arte de ${GEN.q.nombre} generado`); renderResults();
 };
+// Botones en cada fila del plan: convertir el arte que llegó en otro formato, o generar la medida desde otro arte
+function planActs(q, st, c) {
+  if (!S.files.length) return [];
+  if (st === "conv") {
+    const e = c.conv[0], ap = adaptPlan(e, q);
+    if (!ap) return [];
+    const b = el("button", { type: "button", class: "small-btn", text: `Convertir a ${ap.outExt}` });
+    b.onclick = () => runAdapt(e, ap, b);
+    return [b];
+  }
+  if (st === "err") {
+    if (!genSources(q).length) return [el("span", { class: "hint", text: "Sin arte parecido: pídelo a la agencia" })];
+    return [el("button", { type: "button", class: "small-btn", text: "Hacer esta medida", onclick: () => openGen(q) })];
+  }
+  return [];
+}
+async function generateOne(q) {
+  const best = genSources(q)[0]; if (!best) return null;
+  try { const bmp = best.e.kind === "video" ? await videoFrame(best.e.file) : await createImageBitmap(best.e.file); return await generateFor({ q, src: best.e, bmp, mode: best.diff > 8 ? "fill" : "crop", auto: true }); } catch (err) { console.error(err); return null; }
+}
 let PEND = [];
 async function generateAll(btn) {
   const todo = PEND.filter(q => genSources(q).length);
@@ -1336,12 +1404,14 @@ function entregas() {
     const r = resultFor(e);
     const ms = r ? (r.matches || []).filter(m => m.v === "ok" || incl || soloPar(e, m.s)) : [];
     if (!ms.length) { if (e.status !== "leyendo") fuera++; continue; }
-    const seen = new Set();
+    // Si el mismo arte cumple dos medidas iguales del mismo proveedor (ej. spots de 10 s y de 20 s), va una sola vez
+    const seen = new Map();
     for (const m of ms) {
-      const p = m.s.proveedor || "Sin proveedor", k = p + "|" + m.s.id;
-      if (seen.has(k)) continue; seen.add(k);
+      const p = m.s.proveedor || "Sin proveedor", k = p + "|" + m.s.nombre;
+      if (seen.has(k)) { seen.get(k).r.mas.push(m.s); continue; }
       if (!groups.has(p)) groups.set(p, []);
-      groups.get(p).push({ e, r: { ...evaluate(e, m.s), s: m.s } });
+      const it = { e, r: { ...evaluate(e, m.s), s: m.s, mas: [] } };
+      seen.set(k, it); groups.get(p).push(it);
     }
   }
   return { groups, fuera };
@@ -1384,7 +1454,7 @@ function renderEntregas() {
     const mb = [...new Set(arr.map(x => x.e))].reduce((a, e) => a + e.sizeMB, 0);
     let btn = null;
     if (arr.length) { btn = el("button", { class: "primary", type: "button", text: "Descargar ZIP" }); btn.onclick = () => zipProveedor(p, arr, btn); }
-    const pend = fl.length ? el("details", null, el("summary", { text: `Faltan ${fl.length} medida${fl.length > 1 ? "s" : ""}` }), el("ul", null, fl.map(x => el("li", null, x.t, " ", genSources(x.q).length ? el("button", { type: "button", class: "small-btn", text: "Generar desde otro arte", onclick: () => openGen(x.q) }) : null)))) : "—";
+    const pend = fl.length ? el("details", { open: true }, el("summary", { text: `Faltan ${fl.length} medida${fl.length > 1 ? "s" : ""}` }), el("ul", null, fl.map(x => el("li", null, x.t, " ", genSources(x.q).length ? el("button", { type: "button", class: "small-btn", text: "Hacer esta medida", onclick: () => openGen(x.q) }) : null)))) : "—";
     tb.append(el("tr", null, el("td", { text: p }), el("td", { class: "num", text: arr.length }), el("td", { class: "wrap", text: sops.join(", ") || "—" }), el("td", { class: "num", text: arr.length ? nf(mb, mb < 1 ? 2 : 1) + " MB" : "—" }), el("td", { class: "wrap" }, pend), el("td", null, btn)));
   }
   t.append(tb);
@@ -1406,7 +1476,7 @@ async function zipProveedor(p, arr, btn) {
       lista.push(`• ${path}`, `   Soporte: ${r.s.nombre} — ${r.expected}`, `   Archivo: ${r.detected}${r.v === "warn" ? "  (con observaciones)" : ""}`);
       if (e.adaptado) lista.push(`   Nota: ${e.adaptado}`);
       { const dv = fileDims(e), W = +r.s.ancho, H = +r.s.alto; if (e.kind === "video" && r.s.tipo === "digital" && evenMatch(dv, { W, H })) lista.push(`   Nota: el video mide ${dv.w} x ${dv.h} px, 1 px más que ${W} x ${H}, porque el MP4 estándar (H.264) no admite medidas impares.`); }
-      if (r.s.plan) for (const u of r.s.ubicaciones) lista.push(`   Ubicación: ${[u.ubi, u.venue, u.ciudad].filter(Boolean).join(" · ")}`);
+      if (r.s.plan) for (const u of [r.s, ...(r.mas || [])].flatMap(x => x.ubicaciones || [])) lista.push(`   Ubicación: ${[u.ubi, u.venue, u.ciudad].filter(Boolean).join(" · ")}`);
     }
     z.file("LISTA DE ARTES.txt", lista.join("\r\n"));
     const blob = await z.generateAsync({ type: "blob", compression: "STORE" });
