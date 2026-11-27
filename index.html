@@ -837,12 +837,19 @@ const RASTER_OUT = { JPG: "image/jpeg", PNG: "image/png", WEBP: "image/webp" };
 function adaptPlan(e, s) {
   if (!s || e.status !== "listo" || e.adaptado) return null;
   const sp = specOf(s), d = fileDims(e), i = e.info || {};
+  // Formato: si el proveedor no acepta el del arte, se convierte a uno que sí acepte (JPG, PNG o WEBP)
+  const fl = fmtList(s.formatos), fmtOk = !fl.length || fl.includes(e.ext);
+  const decodable = e.kind === "image" && /^(JPG|PNG|WEBP|GIF)$/.test(e.ext);
+  const outExt = fmtOk ? e.ext : ["JPG", "PNG", "WEBP"].find(f => fl.includes(f)) || null;
+  const convNota = !fmtOk && outExt ? ` Se convierte de ${e.ext} a ${outExt}${outExt === "JPG" && e.ext !== "JPG" ? " (si tiene fondo transparente, queda en blanco)" : ""}.` : "";
   if (sp.digital) {
-    if (d.vec || e.kind !== "image" || !RASTER_OUT[e.ext]) return null;
-    if (d.w === sp.W && d.h === sp.H) return null;
-    if (!near(d.w / d.h, sp.W / sp.H, Math.max(sp.tol, 0.2))) return null;
+    if (d.vec || !decodable || !outExt || !RASTER_OUT[outExt]) return null;
+    const sizeOk = d.w === sp.W && d.h === sp.H;
+    if (sizeOk && fmtOk) return null;
+    if (!near(d.w / d.h, sp.W / sp.H, Math.max(sp.tol, 0.2))) return fmtOk ? null : { tipo: "resize", W: d.w, H: d.h, outExt, label: `Convertir a ${outExt}`, nota: `Solo cambia el formato; la medida sigue sin coincidir.${convNota}` };
+    if (sizeOk) return { tipo: "resize", W: d.w, H: d.h, outExt, label: `Convertir a ${outExt}`, nota: `Misma medida y mismo contenido.${convNota}` };
     const up = d.w < sp.W;
-    return { tipo: "resize", W: sp.W, H: sp.H, label: `Adaptar a ${sp.W}×${sp.H} px`, nota: up ? `Se agranda ${nf(sp.W / d.w * 100, 0)} %; revisa que no se vea pixeleado.` : "Se reduce de tamaño sin deformar ni mover nada." };
+    return { tipo: "resize", W: sp.W, H: sp.H, outExt, label: `Adaptar a ${sp.W}×${sp.H} px${fmtOk ? "" : " en " + outExt}`, nota: (up ? `Se agranda ${nf(sp.W / d.w * 100, 0)} %; revisa que no se vea pixeleado.` : "Se reduce de tamaño sin deformar ni mover nada.") + convNota };
   }
   if (d.vec) {
     if (e.ext !== "PDF") return null;
@@ -851,9 +858,14 @@ function adaptPlan(e, s) {
     if (near(d.wCm, sp.fW, sp.tol) && near(d.hCm, sp.fH, sp.tol)) return null;
     return { tipo: "pdfscale", f: sp.fW / d.wCm, label: `Escalar PDF a ${nf(sp.fW)} × ${nf(sp.fH)} cm`, nota: "Escala la página completa; vectores, textos y color quedan igual." };
   }
+  const effAll = Math.min(d.w / (sp.fW / 2.54), d.h / (sp.fH / 2.54));
+  if (!fmtOk && decodable && outExt && s.color !== "CMYK" && i.color !== "CMYK") {
+    const dpiC = Math.round(effAll);
+    return { tipo: "resize", W: d.w, H: d.h, outExt, dpi: near(d.w / d.h, sp.W / sp.H, sp.tol) ? dpiC : null, label: `Convertir a ${outExt}`, nota: `Mismos píxeles, queda en RGB.${convNota}` };
+  }
   if (e.kind !== "image" || !/^(JPG|PNG|TIFF)$/.test(e.ext)) return null;
   if (!near(d.w / d.h, sp.W / sp.H, sp.tol)) return null;
-  const eff = Math.min(d.w / (sp.fW / 2.54), d.h / (sp.fH / 2.54));
+  const eff = effAll;
   if (s.dpiMin && eff + 0.5 < +s.dpiMin) return null;
   if (i.dpiX && near(i.dpiX, eff, 1)) return null;
   if (e.ext === "TIFF" && !i.dpiX) return null;
@@ -921,15 +933,19 @@ async function runAdapt(e, plan, btn) {
   if (btn) { btn.disabled = true; btn.textContent = "Adaptando…"; }
   try {
     let blob;
-    if (plan.tipo === "resize") blob = await resizeImage(e.file, plan.W, plan.H, e.ext);
+    const ext = plan.outExt || e.ext;
+    if (plan.tipo === "resize") {
+      blob = await resizeImage(e.file, plan.W, plan.H, ext);
+      if (plan.dpi && (ext === "JPG" || ext === "PNG")) { const b = new Uint8Array(await blob.arrayBuffer()); blob = new Blob([ext === "JPG" ? setDpiJPEG(b, plan.dpi) : setDpiPNG(b, plan.dpi)]); }
+    }
     else {
       const buf = new Uint8Array(await e.file.arrayBuffer());
       if (plan.tipo === "dpi") blob = new Blob([e.ext === "JPG" ? setDpiJPEG(buf, plan.dpi) : e.ext === "PNG" ? setDpiPNG(buf, plan.dpi) : setDpiTIFF(buf, plan.dpi)]);
       else blob = new Blob([await scalePDF(buf, plan.f)]);
     }
-    const nm = e.file.name.replace(/(\.[^.]+)?$/, "_adaptado$1");
-    const f = new File([blob], nm, { type: MIME[e.ext] || "" });
-    const ne = { id: ++seq, file: f, name: e.name.replace(/[^/]*$/, nm), ext: e.ext, sizeMB: f.size / 1048576, status: "leyendo", info: null, sel: e.sel, original: e, adaptado: `Adaptado por la app: ${plan.label.toLowerCase()}.` };
+    const nm = e.file.name.replace(/\.[^.]+$/, "") + "_adaptado." + (ext === "JPG" ? "jpg" : ext.toLowerCase());
+    const f = new File([blob], nm, { type: MIME[ext] || "" });
+    const ne = { id: ++seq, file: f, name: e.name.replace(/[^/]*$/, nm), ext, sizeMB: f.size / 1048576, status: "leyendo", info: null, sel: e.sel, original: e, adaptado: `Adaptado por la app: ${plan.label.toLowerCase()}.` };
     const k = S.files.indexOf(e); if (k >= 0) S.files.splice(k, 1, ne); else S.files.push(ne);
     track(ne); renderResults();
   } catch (err) { toast("No se pudo adaptar: " + (err.message || err)); if (btn) { btn.disabled = false; btn.textContent = plan.label; } }
