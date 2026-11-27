@@ -211,6 +211,7 @@ details ul{margin:4px 0 0;padding-left:16px;font-size:.8rem;color:var(--muted)}
       <h2>Resultados</h2>
       <div class="summary" id="summary"></div>
       <div class="spacer"></div>
+      <label class="row outfmt" style="gap:6px;font-size:.88rem">Entregar en <select class="outFmt"><option value="auto">Lo que pida el plan</option><option value="JPG">JPG</option><option value="MP4">MP4</option></select></label>
       <button id="adaptAll" type="button" hidden>Adaptar todos</button>
       <button id="copyReport" type="button">Copiar reporte</button>
       <button class="ghost" id="clearFiles" type="button">Limpiar</button>
@@ -219,6 +220,7 @@ details ul{margin:4px 0 0;padding-left:16px;font-size:.8rem;color:var(--muted)}
 
     <div class="panel" id="entregas" hidden>
       <div class="row"><div><div class="eyebrow">Paso 3</div><h2>Entregas por proveedor</h2></div><div class="spacer"></div>
+        <label class="row outfmt" style="gap:6px;font-size:.88rem">Entregar en <select class="outFmt"><option value="auto">Lo que pida el plan</option><option value="JPG">JPG</option><option value="MP4">MP4</option></select></label>
         <button type="button" id="genAll" hidden></button>
         <label class="row" style="gap:6px;font-size:.88rem"><input type="checkbox" id="inclWarn" checked> Incluir los que dicen “Revisar”</label></div>
       <p class="hint">Cada ZIP lleva los artes de ese proveedor en una carpeta por soporte, más una lista con lo que contiene. Súbelo a tu OneDrive, Drive o WeTransfer y manda el link. Los que no cumplen no se incluyen.</p>
@@ -289,6 +291,7 @@ details ul{margin:4px 0 0;padding-left:16px;font-size:.8rem;color:var(--muted)}
     <div><div class="eyebrow" id="genEyebrow">Generar arte</div><h2 id="genTitle"></h2></div>
     <div class="row">
       <label class="f" style="flex:1 1 260px"><span>Arte de origen</span><select id="genSrc"></select></label>
+      <label class="f"><span>Formato</span><select id="genFmt"><option value="auto">Lo que pida el plan</option><option value="JPG">JPG</option><option value="MP4">MP4</option></select></label>
       <div class="f"><span>Cómo acomodarlo</span><div class="seg"><button type="button" id="genCrop" aria-pressed="true">Recortar orillas</button><button type="button" id="genFill" aria-pressed="false">Rellenar orillas</button></div></div>
     </div>
     <div class="genprev"><canvas id="genCanvas"></canvas></div>
@@ -325,7 +328,15 @@ const fmtList = s => String(s || "").split(/[,;\/\s]+/).map(normFmt).filter(Bool
 function orient(w, h) { return Math.abs(w - h) / Math.max(w, h) < 0.01 ? "cuadrado" : w > h ? "horizontal" : "vertical"; }
 
 /* ---------------- almacenamiento de soportes ---------------- */
-const S = { soportes: [], files: [], global: lsGet("va.global") || "auto", editing: null };
+const S = { soportes: [], files: [], global: lsGet("va.global") || "auto", editing: null, outFmt: lsGet("va.outFmt") || "auto" };
+// Formato de salida al adaptar o generar: el que eligió el usuario (JPG o MP4) si el proveedor lo acepta; si no, el que pida el plan
+function pickOut(fl, digital, cur, pref = S.outFmt) {
+  const ok = f => !fl.length || fl.includes(f);
+  const auto = cur && ok(cur) ? cur : ["JPG", "PNG", "WEBP"].find(ok) || (fl.includes("MP4") && digital ? "MP4" : null);
+  if (pref === "auto" || !pref || !digital) return { ext: auto, aviso: "" };
+  if (ok(pref)) return { ext: pref, aviso: "" };
+  return { ext: auto, aviso: auto ? ` Elegiste ${pref}, pero este proveedor no lo acepta; se entrega en ${auto}.` : "" };
+}
 const store = { db: null, mode: "loading" };
 function supLabel(s) { return `${s.proveedor} · ${s.nombre}`; }
 function sortSups(a) { return a.slice().sort((x, y) => (x.proveedor || "").localeCompare(y.proveedor || "", "es") || (x.nombre || "").localeCompare(y.nombre || "", "es")); }
@@ -865,21 +876,22 @@ function adaptPlan(e, s) {
   if (!s || e.status !== "listo" || e.adaptado) return null;
   const sp = specOf(s), d = fileDims(e), i = e.info || {};
   // Formato: si el proveedor no acepta el del arte, se convierte a uno que sí acepte (JPG, PNG o WEBP)
-  const fl = fmtList(s.formatos), fmtOk = !fl.length || fl.includes(e.ext);
+  const fl = fmtList(s.formatos);
   const decodable = e.kind === "image" && /^(JPG|PNG|WEBP|GIF)$/.test(e.ext);
-  const outExt = fmtOk ? e.ext : ["JPG", "PNG", "WEBP"].find(f => fl.includes(f)) || (fl.includes("MP4") && sp.digital ? "MP4" : null);
+  const po = pickOut(fl, sp.digital && decodable, e.ext), outExt = po.ext, fmtOk = outExt === e.ext;
   const durV = +s.duracionSeg || 10;
   const convNota = !fmtOk && outExt === "MP4" ? ` Se crea un video MP4 de ${durV} s con la imagen fija (sin audio).`
     : !fmtOk && outExt ? ` Se convierte de ${e.ext} a ${outExt}${outExt === "JPG" && e.ext !== "JPG" ? " (si tiene fondo transparente, queda en blanco)" : ""}.` : "";
+  const convNotaF = convNota + po.aviso;
   const enFmt = outExt === "MP4" ? ` en MP4 (${durV} s)` : ` en ${outExt}`;
   if (sp.digital) {
     if (d.vec || !decodable || !outExt || (!RASTER_OUT[outExt] && outExt !== "MP4")) return null;
     const sizeOk = d.w === sp.W && d.h === sp.H;
     if (sizeOk && fmtOk) return null;
-    if (!near(d.w / d.h, sp.W / sp.H, Math.max(sp.tol, 0.2))) return fmtOk ? null : { tipo: "resize", W: d.w, H: d.h, outExt, dur: durV, label: `Convertir a ${outExt}`, nota: `Solo cambia el formato; la medida sigue sin coincidir.${convNota}` };
-    if (sizeOk) return { tipo: "resize", W: d.w, H: d.h, outExt, dur: durV, label: outExt === "MP4" ? `Convertir a MP4 (${durV} s)` : `Convertir a ${outExt}`, nota: `Misma medida y mismo contenido.${convNota}` };
+    if (!near(d.w / d.h, sp.W / sp.H, Math.max(sp.tol, 0.2))) return fmtOk ? null : { tipo: "resize", aviso: po.aviso, W: d.w, H: d.h, outExt, dur: durV, label: `Convertir a ${outExt}`, nota: `Solo cambia el formato; la medida sigue sin coincidir.${convNotaF}` };
+    if (sizeOk) return { tipo: "resize", aviso: po.aviso, W: d.w, H: d.h, outExt, dur: durV, label: outExt === "MP4" ? `Convertir a MP4 (${durV} s)` : `Convertir a ${outExt}`, nota: `Misma medida y mismo contenido.${convNotaF}` };
     const up = d.w < sp.W;
-    return { tipo: "resize", W: sp.W, H: sp.H, outExt, dur: durV, label: `Adaptar a ${sp.W}×${sp.H} px${fmtOk ? "" : enFmt}`, nota: (up ? `Se agranda ${nf(sp.W / d.w * 100, 0)} %; revisa que no se vea pixeleado.` : "Se reduce de tamaño sin deformar ni mover nada.") + convNota };
+    return { tipo: "resize", aviso: po.aviso, W: sp.W, H: sp.H, outExt, dur: durV, label: `Adaptar a ${sp.W}×${sp.H} px${fmtOk ? "" : enFmt}`, nota: (up ? `Se agranda ${nf(sp.W / d.w * 100, 0)} %; revisa que no se vea pixeleado.` : "Se reduce de tamaño sin deformar ni mover nada.") + convNotaF };
   }
   if (d.vec) {
     if (e.ext !== "PDF") return null;
@@ -891,7 +903,7 @@ function adaptPlan(e, s) {
   const effAll = Math.min(d.w / (sp.fW / 2.54), d.h / (sp.fH / 2.54));
   if (!fmtOk && decodable && outExt && s.color !== "CMYK" && i.color !== "CMYK") {
     const dpiC = Math.round(effAll);
-    return { tipo: "resize", W: d.w, H: d.h, outExt, dpi: near(d.w / d.h, sp.W / sp.H, sp.tol) ? dpiC : null, label: `Convertir a ${outExt}`, nota: `Mismos píxeles, queda en RGB.${convNota}` };
+    return { tipo: "resize", W: d.w, H: d.h, outExt, dpi: near(d.w / d.h, sp.W / sp.H, sp.tol) ? dpiC : null, label: `Convertir a ${outExt}`, nota: `Mismos píxeles, queda en RGB.${convNotaF}` };
   }
   if (e.kind !== "image" || !/^(JPG|PNG|TIFF)$/.test(e.ext)) return null;
   if (!near(d.w / d.h, sp.W / sp.H, sp.tol)) return null;
@@ -1000,6 +1012,12 @@ async function scalePDF(buf, f) {
   for (const pg of doc.getPages()) pg.scale(f, f);
   return doc.save({ useObjectStreams: false });
 }
+// Se adapta si no cumple, o si cumple pero el usuario pidió otro formato (JPG o MP4) y el proveedor lo acepta
+function wantsAdapt(e, r) {
+  if (e.adaptado || e.generado && r.v === "ok") return null;
+  const ap = adaptPlan(e, r.s);
+  return ap && (r.v !== "ok" || (S.outFmt !== "auto" && ap.outExt && ap.outExt !== e.ext)) ? ap : null;
+}
 async function runAdapt(e, plan, btn) {
   if (btn) { btn.disabled = true; btn.textContent = "Adaptando…"; }
   try {
@@ -1017,8 +1035,10 @@ async function runAdapt(e, plan, btn) {
     }
     const nm = e.file.name.replace(/\.[^.]+$/, "") + "_adaptado." + (ext === "JPG" ? "jpg" : ext.toLowerCase());
     const f = new File([blob], nm, { type: MIME[ext] || "" });
-    const ne = { id: ++seq, file: f, name: e.name.replace(/[^/]*$/, nm), ext, sizeMB: f.size / 1048576, status: "leyendo", info: null, sel: e.sel, original: e, adaptado: `Adaptado por la app: ${plan.label.toLowerCase()}.` };
-    const k = S.files.indexOf(e); if (k >= 0) S.files.splice(k, 1, ne); else S.files.push(ne);
+    const ne = { id: ++seq, file: f, name: e.name.replace(/[^/]*$/, nm), ext, sizeMB: f.size / 1048576, status: "leyendo", info: null, sel: e.sel, original: e, adaptado: `Adaptado por la app: ${plan.label.toLowerCase()}.${plan.aviso || ""}` };
+    // Si el original también le sirve a un soporte que no acepta el formato nuevo, se conserva junto al convertido
+    const ro = resultFor(e), keep = ext !== e.ext && ro && (ro.matches || []).some(m => { const f = fmtList(m.s.formatos); return f.length && !f.includes(ext); });
+    const k = S.files.indexOf(e); if (k >= 0 && !keep) S.files.splice(k, 1, ne); else S.files.push(ne);
     track(ne); renderResults();
   } catch (err) { toast("No se pudo adaptar: " + (err.message || err)); if (btn) { btn.disabled = false; btn.textContent = plan.label; } }
 }
@@ -1029,7 +1049,10 @@ function genSources(q) {
   if (q.tipo !== "digital") return [];
   const r = q.ancho / q.alto;
   // Nunca se genera a partir de otro arte generado: siempre desde un arte de la agencia
-  return S.files.filter(e => e.status === "listo" && !e.generado && e.kind === "image" && /^(JPG|PNG|WEBP|GIF)$/.test(e.ext) && e.info && e.info.w && !(e.info.w === q.ancho && e.info.h === q.alto))
+  // Si un arte se adaptó (por ejemplo, se convirtió a MP4), se usa su original de la agencia, que es una imagen
+  const raster = e => e && e.status === "listo" && !e.generado && e.kind === "image" && /^(JPG|PNG|WEBP|GIF)$/.test(e.ext) && e.info && e.info.w;
+  const pool = [...new Set(S.files.map(e => raster(e) ? e : raster(e.original) ? e.original : null).filter(Boolean))];
+  return pool.filter(e => !(e.info.w === q.ancho && e.info.h === q.alto))
     .map(e => {
       const diff = pct(e.info.w / e.info.h, r);
       // escala necesaria si se recorta (cover): >1 significa que habría que agrandarlo
@@ -1048,11 +1071,12 @@ async function openGen(q) {
   GEN.srcs = srcs;
   $("#genSrc").replaceChildren(...srcs.map((x, k) => el("option", { value: x.e.id, selected: k === 0, text: `${k === 0 ? "★ Recomendado: " : ""}${x.e.file.name} — ${x.e.info.w}×${x.e.info.h} px` })));
   GEN.mode = srcs[0].diff > 8 ? "fill" : "crop";
+  GEN.fmt = S.outFmt; $("#genFmt").value = S.outFmt;
   $("#genModal").hidden = false;
   await genLoad();
 }
 async function genLoad() {
-  GEN.src = S.files.find(e => String(e.id) === $("#genSrc").value);
+  GEN.src = (GEN.srcs || []).map(x => x.e).find(e => String(e.id) === $("#genSrc").value);
   try { GEN.bmp = await createImageBitmap(GEN.src.file); } catch { GEN.bmp = null; toast("No se pudo abrir ese arte"); return; }
   genDraw();
 }
@@ -1093,20 +1117,22 @@ function genDraw() {
   $("#genInfo").textContent = parts.join(" ");
 }
 $("#genSrc").onchange = genLoad;
+$("#genFmt").onchange = ev => { GEN.fmt = ev.target.value; };
+document.querySelectorAll(".outFmt").forEach(x => { x.value = S.outFmt; x.onchange = ev => { S.outFmt = ev.target.value; lsSet("va.outFmt", S.outFmt); document.querySelectorAll(".outFmt").forEach(y => { y.value = S.outFmt; }); renderResults(); }; });
 $("#genCrop").onclick = () => { GEN.mode = "crop"; genDraw(); };
 $("#genFill").onclick = () => { GEN.mode = "fill"; genDraw(); };
 $("#genCancel").onclick = () => { $("#genModal").hidden = true; };
 $("#genModal").addEventListener("keydown", ev => { if (ev.key === "Escape") $("#genModal").hidden = true; });
 async function generateFor(o) {
   const q = o.q, src = o.src;
-  const fl = fmtList(q.formatos), ext = ["JPG", "PNG", "WEBP"].find(f => !fl.length || fl.includes(f)) || (fl.includes("MP4") ? "MP4" : "JPG");
+  const fl = fmtList(q.formatos), po = pickOut(fl, q.tipo !== "impreso", null, o.fmt || S.outFmt), ext = po.ext || "JPG";
   const c = document.createElement("canvas"); genRender(c, o);
   const blob = ext === "MP4" ? await encodeStillMP4(c, +q.duracionSeg || 10) : await new Promise(res => c.toBlob(res, RASTER_OUT[ext], 0.95));
   const base = src.file.name.replace(/\.[^.]+$/, "").replace(/_?\d{3,5}\s*[xX×]\s*\d{3,5}/, "");
   const nm = `${base}_${q.ancho}x${q.alto}_generado.${ext === "JPG" ? "jpg" : ext.toLowerCase()}`;
   const f = new File([blob], nm, { type: MIME[ext] });
   const modo = o.mode === "crop" ? "recortando orillas" : "rellenando orillas";
-  const ne = { id: ++seq, file: f, name: nm, ext, sizeMB: f.size / 1048576, status: "leyendo", info: null, sel: q.id, generado: true, adaptado: `Generado por la app desde ${src.file.name}, ${modo}${o.auto ? " (en automático; revísalo)" : ""}.` };
+  const ne = { id: ++seq, file: f, name: nm, ext, sizeMB: f.size / 1048576, status: "leyendo", info: null, sel: q.id, generado: true, adaptado: `Generado por la app desde ${src.file.name}, ${modo}${ext === "MP4" ? `, en MP4 de ${+q.duracionSeg || 10} s` : ""}${o.auto ? " (en automático; revísalo)" : ""}.${po.aviso}` };
   S.files.push(ne); track(ne);
   return ne;
 }
@@ -1212,7 +1238,7 @@ function renderResults() {
   if (S.files.length) for (const k of ["ok", "warn", "err"]) if (counts[k]) sm.append(el("span", { class: "count c-" + k, text: `${counts[k]} ${VLABEL[k].toLowerCase()}` }));
   $("#copyReport").disabled = !S.files.length; $("#clearFiles").hidden = !S.files.length;
   renderEntregas(); renderPlan();
-  const nAd = S.files.filter(e => { const r = resultFor(e); return r && r.s && r.v !== "ok" && adaptPlan(e, r.s); }).length;
+  const nAd = S.files.filter(e => { const r = resultFor(e); return r && r.s && wantsAdapt(e, r); }).length;
   const ab = $("#adaptAll"); ab.hidden = !nAd; ab.textContent = `Adaptar los que se pueden (${nAd})`;
 }
 // Video que solo difiere por el px extra de una medida impar: entra al ZIP aunque esté en "Revisar"
@@ -1426,7 +1452,7 @@ $("#inclWarn").onchange = () => renderEntregas();
 $("#exportCat").onclick = ev => saveFile(new File([JSON.stringify(S.soportes.map(({ id, ...x }) => x), null, 2)], "soportes.json", { type: "application/json" }), ev.target);
 $("#adaptAll").onclick = async ev => {
   const b = ev.target; b.disabled = true;
-  for (const e of S.files.slice()) { const r = resultFor(e); const ap = r && r.s && r.v !== "ok" ? adaptPlan(e, r.s) : null; if (ap) await runAdapt(e, ap); }
+  for (const e of S.files.slice()) { const r = resultFor(e); const ap = r && r.s && wantsAdapt(e, r); if (ap) await runAdapt(e, ap); }
   b.disabled = false;
 };
 $("#clearFiles").onclick = () => { S.files = []; renderResults(); };
