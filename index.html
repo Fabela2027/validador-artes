@@ -131,6 +131,14 @@ details ul{margin:4px 0 0;padding-left:16px;font-size:.8rem;color:var(--muted)}
 .tag.ad{background:var(--info-soft);color:var(--info)}
 .rside .hint{max-width:240px;text-align:right;font-size:.76rem}
 @media (max-width:760px){.rside .hint{text-align:left}}
+.login{position:fixed;inset:0;z-index:40;display:grid;place-items:center;align-content:center;gap:22px;padding:24px max(16px,env(safe-area-inset-left,0px));background:linear-gradient(90deg,#f44a64,#f78165);overflow:auto}
+.login .logo{color:#fff;height:46px;width:auto}
+.login form{width:min(380px,100%);background:var(--surface);border-radius:14px;padding:28px;display:flex;flex-direction:column;gap:14px;box-shadow:0 18px 40px rgb(120 30 45/.25)}
+.login h1{margin:0;font-size:22px;font-weight:500}
+.login p{margin:0;color:var(--muted)}
+.login input{width:100%}
+.msg{font-size:13px;padding:9px 12px;border-radius:6px}
+.msg.ok{background:var(--ok-soft);color:var(--ok)} .msg.err{background:var(--err-soft);color:var(--err)}
 .toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:6px;font-size:.88rem;z-index:20}
 @media (max-width:760px){
   .controls{grid-template-columns:1fr}
@@ -151,7 +159,7 @@ details ul{margin:4px 0 0;padding-left:16px;font-size:.8rem;color:var(--muted)}
     <a href="#revisar" id="tab-revisar">Revisar artes</a>
     <a href="#soportes" id="tab-soportes">Soportes de proveedores</a>
   </nav>
-  <div class="foot"><span>Los artes se revisan en tu equipo; no se suben a ningún lado.</span><button type="button" id="temaBtn" class="btn small"></button></div>
+  <div class="foot"><div id="userBox" hidden><b id="userMail" style="color:var(--side-fg);display:block;overflow-wrap:anywhere"></b><button type="button" id="logoutBtn" class="btn small" style="margin-top:6px">Salir</button></div><span>Los artes se revisan en tu equipo; no se suben a ningún lado.</span><button type="button" id="temaBtn" class="btn small"></button></div>
 </aside>
 <div style="min-width:0">
 <div class="wrap pagehead"><h1 id="pageTitle">Revisar artes</h1><p id="pageSub">Sube el plan de campaña y los artes para comprobar que vengan a la medida, resolución y formato de cada soporte.</p></div>
@@ -256,6 +264,17 @@ details ul{margin:4px 0 0;padding-left:16px;font-size:.8rem;color:var(--muted)}
 </main>
 </div>
 </div>
+<div class="login" id="login" hidden>
+  <svg class="logo" viewBox="0 0 210 58" role="img" aria-label="Beeyond"><path d="M3 38v15h14" fill="none" stroke="currentColor" stroke-width="5"/><text x="20" y="44" font-family="Rubik,Arial,sans-serif" font-weight="600" font-size="44" textLength="166" lengthAdjust="spacingAndGlyphs" fill="currentColor">Beeyond</text><path d="M193 5h14v15" fill="none" stroke="currentColor" stroke-width="5"/></svg>
+  <form id="loginForm" autocomplete="on">
+    <h1>Validador de artes</h1><p>Entra con tu correo y contraseña de Beeyond (los mismos de Comprobación fotográfica).</p>
+    <label class="f"><span>Correo</span><input type="email" id="loginMail" required autocomplete="username"></label>
+    <label class="f"><span>Contraseña</span><input type="password" id="loginPass" required autocomplete="current-password"></label>
+    <button class="primary" type="submit" id="loginBtn">Entrar</button>
+    <button type="button" id="loginReset">Olvidé mi contraseña</button>
+    <div id="loginMsg" class="msg err" hidden></div>
+  </form>
+</div>
 <div class="toast" id="toast" hidden></div>
 
 <script>
@@ -293,6 +312,12 @@ function setSoportes(list) { S.soportes = sortSups(list); renderAll(); }
 function localLoad() { try { return JSON.parse(lsGet("va.soportes") || "[]"); } catch { return []; } }
 function localSave() { lsSet("va.soportes", JSON.stringify(S.soportes)); }
 async function saveSup(data, id) {
+  if (store.mode === "fb") {
+    const F = store.F, col = F.collection(store.fs, FB_COL);
+    data = { ...data, editado: new Date().toISOString(), editadoPor: store.user.email };
+    if (id) await F.setDoc(F.doc(col, id), data); else await F.addDoc(col, data);
+    return;
+  }
   if (store.mode === "db") {
     if (id) await store.db.collection("soportes").doc(id).set(data);
     else await store.db.collection("soportes").add(data);
@@ -303,15 +328,75 @@ async function saveSup(data, id) {
   }
 }
 async function delSup(id) {
+  if (store.mode === "fb") { await store.F.deleteDoc(store.F.doc(store.fs, FB_COL, id)); return; }
   if (store.mode === "db") await store.db.collection("soportes").doc(id).delete();
   else { S.soportes = S.soportes.filter(s => s.id !== id); localSave(); setSoportes(S.soportes); }
 }
 function note(html) { const n = $("#storeNote"); n.replaceChildren(...html); n.hidden = !html.length; }
+/* ---------------- Firebase (versión web en GitHub) ----------------
+   Usa el mismo proyecto y los mismos usuarios que la app de Comprobación fotográfica.
+   Estos valores no son secretos: la seguridad la dan las reglas de Firestore. */
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyDyyzW9ds688jjVnPCUsud0HXQmKNU83B4",
+  authDomain: "beeyond-comprobacion.firebaseapp.com",
+  projectId: "beeyond-comprobacion",
+  storageBucket: "beeyond-comprobacion.firebasestorage.app",
+  messagingSenderId: "255264782571",
+  appId: "1:255264782571:web:986a45bd4988dc879266ae",
+};
+const FB_COL = "validador_soportes";
+const FB_BASE = "https://www.gstatic.com/firebasejs/10.14.1";
+async function initFirebase() {
+  const imp = u => import(u);
+  const [{ initializeApp }, A, F] = await Promise.all([imp(FB_BASE + "/firebase-app.js"), imp(FB_BASE + "/firebase-auth.js"), imp(FB_BASE + "/firebase-firestore.js")]);
+  const app = initializeApp(FIREBASE_CONFIG);
+  const auth = A.getAuth(app); auth.languageCode = "es";
+  Object.assign(store, { mode: "fb", F, A, auth, fs: F.getFirestore(app) });
+  let unsub = null;
+  A.onAuthStateChanged(auth, u => {
+    if (unsub) { unsub(); unsub = null; }
+    store.user = u;
+    $("#userBox").hidden = !u; $("#userMail").textContent = u ? u.email : "";
+    if (!u) { setSoportes([]); showLogin(); return; }
+    $("#login").hidden = true;
+    note([el("b", { text: "Cargando catálogo… " }), "conectando con el catálogo del equipo."]);
+    unsub = F.onSnapshot(F.collection(store.fs, FB_COL), snap => {
+      note([]); setSoportes(snap.docs.map(d => ({ ...d.data(), id: d.id })));
+    }, err => {
+      note([el("b", { text: "Sin acceso al catálogo. " }), err && err.code === "permission-denied"
+        ? "Tu usuario no tiene permiso. Pide a un administrador de Comprobación fotográfica que te dé de alta (rol verificador o superior para editar)."
+        : "No se pudo leer: " + (err && err.message || err)]);
+    });
+  });
+}
+function showLogin(msg) {
+  const box = $("#login"); box.hidden = false;
+  const m = $("#loginMsg"); m.hidden = !msg; m.className = "msg err"; m.textContent = msg || "";
+  setTimeout(() => $("#loginMail").focus(), 0);
+}
+$("#loginForm").onsubmit = async ev => {
+  ev.preventDefault(); const b = $("#loginBtn"), m = $("#loginMsg"); b.disabled = true; m.hidden = true;
+  try { await store.A.signInWithEmailAndPassword(store.auth, $("#loginMail").value.trim(), $("#loginPass").value); $("#loginPass").value = ""; }
+  catch (err) { m.hidden = false; m.className = "msg err"; m.textContent = /invalid|wrong|user-not-found|credential/.test(err.code || "") ? "Correo o contraseña incorrectos." : err.code === "auth/too-many-requests" ? "Demasiados intentos. Espera unos minutos." : "No se pudo entrar. Revisa tu conexión."; }
+  finally { b.disabled = false; }
+};
+$("#loginReset").onclick = async () => {
+  const e = $("#loginMail").value.trim(), m = $("#loginMsg"); m.hidden = false;
+  if (!e) { m.className = "msg err"; m.textContent = "Escribe tu correo y vuelve a presionar."; return; }
+  try { await store.A.sendPasswordResetEmail(store.auth, e); m.className = "msg ok"; m.textContent = "Si el correo tiene cuenta, te llegará un enlace para crear una contraseña nueva."; }
+  catch { m.className = "msg err"; m.textContent = "No se pudo enviar el correo."; }
+};
+$("#logoutBtn").onclick = () => store.A && store.A.signOut(store.auth);
+
 (async function initStore() {
   note([el("b", { text: "Cargando catálogo… " }), "conectando con el catálogo compartido de soportes."]);
   let db = null;
   await null; // deja que el resto del script se defina antes de pintar
   try { db = window.claude && window.claude.use ? await window.claude.use("db") : null; } catch { db = null; }
+  if (!db && !window.claude && /^https?:$/.test(location.protocol)) {
+    try { await initFirebase(); return; }
+    catch (e) { console.error(e); }
+  }
   if (!db) {
     store.mode = "local";
     let list = lsGet("va.soportes") ? localLoad() : null, base = false;
