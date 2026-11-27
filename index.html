@@ -775,7 +775,7 @@ function evaluate(e, s) {
     expected = `${sp.W} × ${sp.H} px` + (s.duracionSeg ? ` · ${s.duracionSeg} s` : "");
     if (d.vec) add("err", "Para pantalla se necesita un archivo en píxeles (JPG, PNG o video), no un PDF o vector.");
     else if (d.w === sp.W && d.h === sp.H) add("ok", `Medida exacta: ${d.w} × ${d.h} px.`);
-    else if (e.kind === "video" && evenMatch(d, sp)) add("ok", `Medida ${d.w} × ${d.h} px: el MP4 solo admite medidas pares, así que lleva 1 px más que ${sp.W} × ${sp.H}. Es la medida estándar para video; confírmalo con el proveedor si es muy estricto.`);
+    else if (e.kind === "video" && evenMatch(d, sp)) add("warn", `Mide ${d.w} × ${d.h} px, 1 px más que la pantalla (${sp.W} × ${sp.H}). El MP4 estándar (H.264) no admite medidas impares, por eso se redondea. Va en el ZIP con una nota; si el proveedor es estricto, confírmalo con él.`);
     else if (d.w === sp.H && d.h === sp.W) add("err", `Orientación invertida: el arte es ${orient(d.w, d.h)} y la pantalla es ${orient(sp.W, sp.H)}.`);
     else if (near(d.w / d.h, sp.W / sp.H, Math.max(sp.tol, 0.2))) {
       if (d.w > sp.W) add("warn", `Proporción correcta pero mide ${d.w} × ${d.h} px. La pantalla pide ${sp.W} × ${sp.H}; se puede reducir sin deformar.`);
@@ -1215,11 +1215,16 @@ function renderResults() {
   const nAd = S.files.filter(e => { const r = resultFor(e); return r && r.s && r.v !== "ok" && adaptPlan(e, r.s); }).length;
   const ab = $("#adaptAll"); ab.hidden = !nAd; ab.textContent = `Adaptar los que se pueden (${nAd})`;
 }
+// Video que solo difiere por el px extra de una medida impar: entra al ZIP aunque esté en "Revisar"
+function soloPar(e, sup) {
+  if (e.kind !== "video" || sup.tipo !== "digital" || !evenMatch(fileDims(e), { W: +sup.ancho, H: +sup.alto })) return false;
+  return !evaluate(e, sup).checks.some(c => c.l === "err" || (c.l === "warn" && !/medidas impares/.test(c.t)));
+}
 function entregas() {
   const incl = $("#inclWarn").checked, groups = new Map(); let fuera = 0;
   for (const e of S.files) {
     const r = resultFor(e);
-    const ms = r ? (r.matches || []).filter(m => m.v === "ok" || incl) : [];
+    const ms = r ? (r.matches || []).filter(m => m.v === "ok" || incl || soloPar(e, m.s)) : [];
     if (!ms.length) { if (e.status !== "leyendo") fuera++; continue; }
     const seen = new Set();
     for (const m of ms) {
@@ -1290,6 +1295,7 @@ async function zipProveedor(p, arr, btn) {
       used.add(path); z.file(path, e.file, { binary: true });
       lista.push(`• ${path}`, `   Soporte: ${r.s.nombre} — ${r.expected}`, `   Archivo: ${r.detected}${r.v === "warn" ? "  (con observaciones)" : ""}`);
       if (e.adaptado) lista.push(`   Nota: ${e.adaptado}`);
+      { const dv = fileDims(e), W = +r.s.ancho, H = +r.s.alto; if (e.kind === "video" && r.s.tipo === "digital" && evenMatch(dv, { W, H })) lista.push(`   Nota: el video mide ${dv.w} x ${dv.h} px, 1 px más que ${W} x ${H}, porque el MP4 estándar (H.264) no admite medidas impares.`); }
       if (r.s.plan) for (const u of r.s.ubicaciones) lista.push(`   Ubicación: ${[u.ubi, u.venue, u.ciudad].filter(Boolean).join(" · ")}`);
     }
     z.file("LISTA DE ARTES.txt", lista.join("\r\n"));
