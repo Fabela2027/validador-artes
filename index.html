@@ -782,7 +782,7 @@ function renderPlan() {
   const gb = $("#planGen"); gb.hidden = !S.files.length || !(conv.length + gen.length);
   if (!gb.hidden) {
     $("#planGenTitle").textContent = `Faltan ${pend.length} ${pend.length === 1 ? "medida" : "medidas"}. La app puede hacer ${conv.length + gen.length}.`;
-    $("#planGenHint").textContent = [conv.length ? `${conv.length} ya tienen arte pero en un formato que el proveedor no acepta; se convierten.` : "", gen.length ? `${gen.length} se hacen a partir del arte que mejor se parece; revísalas después, dicen “Generado”.` : "", sin ? `${sin} no tienen ningún arte parecido; pídelas a la agencia.` : ""].filter(Boolean).join(" ");
+    $("#planGenHint").textContent = [conv.length ? `${conv.length} ya tienen arte pero en un formato que el proveedor no acepta; se convierten.` : "", gen.length ? `${gen.length} se hacen a partir del arte que mejor se parece; revísalas después, dicen “Generado”.` : "", gen.some(q => genSources(q)[0].lejos) ? `De esas, ${gen.filter(q => genSources(q)[0].lejos).length} no tienen ningún arte con proporción parecida: el arte entra completo y las orillas se rellenan; revísalas con cuidado.` : "", sin ? `${sin} no tienen ningún arte parecido; pídelas a la agencia.` : ""].filter(Boolean).join(" ");
     const b = $("#planGenAll"); if (!b.disabled) b.textContent = conv.length + gen.length === 1 ? "Hacer la que falta" : `Hacer las ${conv.length + gen.length} que faltan`;
     b.onclick = async () => {
       b.disabled = true; let n = 0; const tot = conv.length + gen.length;
@@ -1169,7 +1169,7 @@ function genSources(q) {
   // Si un arte se adaptó (por ejemplo, se convirtió a MP4), se usa su original de la agencia, que es una imagen
   const raster = e => e && e.status === "listo" && !e.generado && ((e.kind === "image" && /^(JPG|PNG|WEBP|GIF)$/.test(e.ext)) || (e.kind === "video" && VID_EXT.test(e.ext))) && e.info && e.info.w;
   const pool = [...new Set(S.files.map(e => raster(e.original) ? e.original : raster(e) ? e : null).filter(Boolean))];
-  return pool.filter(e => !(e.info.w === q.ancho && e.info.h === q.alto))
+  const all = pool.filter(e => !(e.info.w === q.ancho && e.info.h === q.alto))
     .map(e => {
       const diff = pct(e.info.w / e.info.h, r);
       // escala necesaria si se recorta (cover): >1 significa que habría que agrandarlo
@@ -1177,8 +1177,17 @@ function genSources(q) {
       // Puntaje: lo que se pierde por proporción + castigo fuerte por agrandar (se ve borroso)
       const score = diff + Math.max(0, up - 1) * 25;
       return { e, diff, up, score };
-    }).filter(x => x.diff <= 15)
-    .sort((a, b) => a.score - b.score || b.e.info.w * b.e.info.h - a.e.info.w * a.e.info.h);
+    });
+  const orden = (a, b) => a.score - b.score || b.e.info.w * b.e.info.h - a.e.info.w * a.e.info.h;
+  const cerca = all.filter(x => x.diff <= 15);
+  if (cerca.length) return cerca.sort(orden);
+  // Ningún arte tiene una proporción parecida: se ofrece el que mejor llena la pantalla sin recortar nada
+  // (el arte completo al centro y las orillas rellenas con el mismo arte difuminado). Siempre se revisa a mano.
+  return all.map(x => {
+    const ra = x.e.info.w / x.e.info.h, llena = Math.min(ra / r, r / ra);
+    const upC = Math.min(q.ancho / x.e.info.w, q.alto / x.e.info.h);
+    return { ...x, lejos: true, llena, score: (1 - llena) * 100 + Math.max(0, upC - 1) * 25 };
+  }).filter(x => x.llena >= 0.25).sort(orden);
 }
 const GEN = { q: null, src: null, mode: "crop", bmp: null };
 async function openGen(q) {
@@ -1187,7 +1196,7 @@ async function openGen(q) {
   $("#genEyebrow").textContent = "Generar arte" + (q.ubicaciones && q.ubicaciones.length ? " · " + q.ubicaciones.map(u => u.ubi).filter(Boolean).join(", ") : "");
   GEN.srcs = srcs;
   $("#genSrc").replaceChildren(...srcs.map((x, k) => el("option", { value: x.e.id, selected: k === 0, text: `${k === 0 ? "★ Recomendado: " : ""}${x.e.file.name} — ${x.e.info.w}×${x.e.info.h} px` })));
-  GEN.mode = srcs[0].diff > 8 ? "fill" : "crop"; GEN.t = null;
+  GEN.mode = srcs[0].lejos || srcs[0].diff > 8 ? "fill" : "crop"; GEN.t = null;
   GEN.fmt = S.outFmt; $("#genFmt").value = S.outFmt;
   $("#genModal").hidden = false;
   await genLoad();
@@ -1224,7 +1233,8 @@ function genDraw() {
   const { cover, contain } = genRender($("#genCanvas"));
   const b = GEN.bmp, W = GEN.q.ancho, H = GEN.q.alto, parts = [];
   const x = (GEN.srcs || []).find(s => s.e === GEN.src), best = GEN.srcs && GEN.srcs[0] && GEN.srcs[0].e === GEN.src;
-  if (x) parts.push(`${best ? "La app eligió este arte" : "Este arte"} porque su proporción es ${x.diff < 0.05 ? "igual" : nf(x.diff) + " % distinta"} a la de la pantalla y ${x.up <= 1.001 ? "tiene resolución de sobra, así que no hay que agrandarlo" : "habría que agrandarlo " + nf(x.up * 100, 0) + " %"}.${best && GEN.srcs.length > 1 ? ` Hay ${GEN.srcs.length - 1} ${GEN.srcs.length > 2 ? "opciones" : "opción"} más en la lista.` : ""}`);
+  if (x && x.lejos) parts.push(`Ningún arte tiene una proporción parecida a esta pantalla, así que ${best ? "la app eligió el que mejor la llena sin recortar nada" : "este arte se acomoda sin recortar"}: ocupa el ${nf(x.llena * 100, 0)} % de la pantalla y el resto se rellena con el mismo arte difuminado. Revisa que se lea bien; si no te convence, pide esta medida a la agencia.`);
+  else if (x) parts.push(`${best ? "La app eligió este arte" : "Este arte"} porque su proporción es ${x.diff < 0.05 ? "igual" : nf(x.diff) + " % distinta"} a la de la pantalla y ${x.up <= 1.001 ? "tiene resolución de sobra, así que no hay que agrandarlo" : "habría que agrandarlo " + nf(x.up * 100, 0) + " %"}.${best && GEN.srcs.length > 1 ? ` Hay ${GEN.srcs.length - 1} ${GEN.srcs.length > 2 ? "opciones" : "opción"} más en la lista.` : ""}`);
   if (GEN.mode === "crop") {
     const cx = Math.round((b.width * cover - W) / 2 / cover), cy = Math.round((b.height * cover - H) / 2 / cover);
     parts.push(cx ? `Se recortan ${cx} px del arte original a cada lado (izquierda y derecha).` : cy ? `Se recortan ${cy} px del arte original arriba y abajo.` : "No se recorta nada.");
@@ -1249,6 +1259,7 @@ $("#genCancel").onclick = () => { $("#genModal").hidden = true; };
 $("#genModal").addEventListener("keydown", ev => { if (ev.key === "Escape") $("#genModal").hidden = true; });
 async function generateFor(o) {
   const q = o.q, src = o.src;
+  if (o.lejos == null) o = { ...o, lejos: !!(genSources(q).find(x => x.e === src) || {}).lejos };
   const vid = src.kind === "video";
   const fl = fmtList(q.formatos), po = pickOut(fl, q.tipo !== "impreso", vid ? "MP4" : null, o.fmt || S.outFmt), ext = po.ext || "JPG";
   let blob;
@@ -1260,7 +1271,7 @@ async function generateFor(o) {
   const base = src.file.name.replace(/\.[^.]+$/, "").replace(/_?\d{3,5}\s*[xX×]\s*\d{3,5}/, "");
   const nm = `${base}_${q.ancho}x${q.alto}_generado.${ext === "JPG" ? "jpg" : ext.toLowerCase()}`;
   const f = new File([blob], nm, { type: MIME[ext] });
-  const modo = o.mode === "crop" ? "recortando orillas" : "rellenando orillas";
+  const modo = o.mode === "crop" ? "recortando orillas" : o.lejos ? "con proporción muy distinta, rellenando orillas" : "rellenando orillas";
   const ne = { id: ++seq, file: f, name: nm, ext, sizeMB: f.size / 1048576, status: "leyendo", info: null, sel: q.id, generado: true, adaptado: `Generado por la app desde ${src.file.name}, ${modo}${vid && ext === "MP4" ? ", con el video completo (sin audio)" : vid ? `, con el cuadro del segundo ${nf(o.t != null ? o.t : Math.max(0, (src.info.dur || 0) - 0.1))} del video` : ext === "MP4" ? `, en MP4 de ${+q.duracionSeg || 10} s` : ""}${o.auto ? " (en automático; revísalo)" : ""}.${po.aviso}` };
   S.files.push(ne); track(ne);
   return ne;
@@ -1285,13 +1296,14 @@ function planActs(q, st, c) {
   }
   if (st === "err") {
     if (!genSources(q).length) return [el("span", { class: "hint", text: "Sin arte parecido: pídelo a la agencia" })];
-    return [el("button", { type: "button", class: "small-btn", text: "Hacer esta medida", onclick: () => openGen(q) })];
+    const lejos = genSources(q)[0].lejos;
+    return [el("button", { type: "button", class: "small-btn", text: "Hacer esta medida", onclick: () => openGen(q) }), lejos ? el("span", { class: "hint", text: "Ningún arte se parece en proporción; queda con orillas rellenas. Revísalo." }) : null].filter(Boolean);
   }
   return [];
 }
 async function generateOne(q) {
   const best = genSources(q)[0]; if (!best) return null;
-  try { const bmp = best.e.kind === "video" ? await videoFrame(best.e.file) : await createImageBitmap(best.e.file); return await generateFor({ q, src: best.e, bmp, mode: best.diff > 8 ? "fill" : "crop", auto: true }); } catch (err) { console.error(err); return null; }
+  try { const bmp = best.e.kind === "video" ? await videoFrame(best.e.file) : await createImageBitmap(best.e.file); return await generateFor({ q, src: best.e, bmp, mode: best.lejos || best.diff > 8 ? "fill" : "crop", auto: true, lejos: best.lejos }); } catch (err) { console.error(err); return null; }
 }
 let PEND = [];
 async function generateAll(btn) {
@@ -1301,7 +1313,7 @@ async function generateAll(btn) {
   for (const q of todo) {
     btn.textContent = `Generando ${++n} de ${todo.length}…`;
     const best = genSources(q)[0];
-    try { const bmp = best.e.kind === "video" ? await videoFrame(best.e.file) : await createImageBitmap(best.e.file); await generateFor({ q, src: best.e, bmp, mode: best.diff > 8 ? "fill" : "crop", auto: true }); } catch (err) { console.error(err); }
+    try { const bmp = best.e.kind === "video" ? await videoFrame(best.e.file) : await createImageBitmap(best.e.file); await generateFor({ q, src: best.e, bmp, mode: best.lejos || best.diff > 8 ? "fill" : "crop", auto: true, lejos: best.lejos }); } catch (err) { console.error(err); }
   }
   btn.disabled = false; renderResults();
   toast(`${n} arte${n > 1 ? "s" : ""} generado${n > 1 ? "s" : ""}. Revísalos en Resultados; dicen “Generado”.`);
