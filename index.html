@@ -220,6 +220,7 @@ details ul{margin:4px 0 0;padding-left:16px;font-size:.8rem;color:var(--muted)}
 
     <div class="panel" id="entregas" hidden>
       <div class="row"><div><div class="eyebrow">Paso 3</div><h2>Entregas por proveedor</h2></div><div class="spacer"></div>
+        <button type="button" id="genAll" hidden></button>
         <label class="row" style="gap:6px;font-size:.88rem"><input type="checkbox" id="inclWarn" checked> Incluir los que dicen “Revisar”</label></div>
       <p class="hint">Cada ZIP lleva los artes de ese proveedor en una carpeta por soporte, más una lista con lo que contiene. Súbelo a tu OneDrive, Drive o WeTransfer y manda el link. Los que no cumplen no se incluyen.</p>
       <div class="tablewrap"><table id="entTable"></table></div>
@@ -981,7 +982,8 @@ async function runAdapt(e, plan, btn) {
 function genSources(q) {
   if (q.tipo !== "digital") return [];
   const r = q.ancho / q.alto;
-  return S.files.filter(e => e.status === "listo" && e.kind === "image" && /^(JPG|PNG|WEBP|GIF)$/.test(e.ext) && e.info && e.info.w && !(e.info.w === q.ancho && e.info.h === q.alto))
+  // Nunca se genera a partir de otro arte generado: siempre desde un arte de la agencia
+  return S.files.filter(e => e.status === "listo" && !e.generado && e.kind === "image" && /^(JPG|PNG|WEBP|GIF)$/.test(e.ext) && e.info && e.info.w && !(e.info.w === q.ancho && e.info.h === q.alto))
     .map(e => {
       const diff = pct(e.info.w / e.info.h, r);
       // escala necesaria si se recorta (cover): >1 significa que habría que agrandarlo
@@ -1008,12 +1010,12 @@ async function genLoad() {
   try { GEN.bmp = await createImageBitmap(GEN.src.file); } catch { GEN.bmp = null; toast("No se pudo abrir ese arte"); return; }
   genDraw();
 }
-function genRender(c) {
-  const W = GEN.q.ancho, H = GEN.q.alto, b = GEN.bmp, g = c.getContext("2d");
+function genRender(c, o = GEN) {
+  const W = o.q.ancho, H = o.q.alto, b = o.bmp, g = c.getContext("2d");
   c.width = W; c.height = H; g.imageSmoothingQuality = "high";
   const cover = Math.max(W / b.width, H / b.height), contain = Math.min(W / b.width, H / b.height);
   g.fillStyle = "#ffffff"; g.fillRect(0, 0, W, H);
-  if (GEN.mode === "crop") {
+  if (o.mode === "crop") {
     const w = b.width * cover, h = b.height * cover; g.drawImage(b, (W - w) / 2, (H - h) / 2, w, h);
   } else {
     const w = b.width * cover, h = b.height * cover;
@@ -1049,19 +1051,37 @@ $("#genCrop").onclick = () => { GEN.mode = "crop"; genDraw(); };
 $("#genFill").onclick = () => { GEN.mode = "fill"; genDraw(); };
 $("#genCancel").onclick = () => { $("#genModal").hidden = true; };
 $("#genModal").addEventListener("keydown", ev => { if (ev.key === "Escape") $("#genModal").hidden = true; });
-$("#genOk").onclick = async () => {
-  const q = GEN.q, src = GEN.src; if (!q || !GEN.bmp) return;
+async function generateFor(o) {
+  const q = o.q, src = o.src;
   const fl = fmtList(q.formatos), ext = ["JPG", "PNG", "WEBP"].find(f => !fl.length || fl.includes(f)) || "JPG";
-  const c = document.createElement("canvas"); genRender(c);
+  const c = document.createElement("canvas"); genRender(c, o);
   const blob = await new Promise(res => c.toBlob(res, RASTER_OUT[ext], 0.95));
   const base = src.file.name.replace(/\.[^.]+$/, "").replace(/_?\d{3,5}\s*[xX×]\s*\d{3,5}/, "");
   const nm = `${base}_${q.ancho}x${q.alto}_generado.${ext === "JPG" ? "jpg" : ext.toLowerCase()}`;
   const f = new File([blob], nm, { type: MIME[ext] });
-  const modo = GEN.mode === "crop" ? "recortando orillas" : "rellenando orillas";
-  const ne = { id: ++seq, file: f, name: nm, ext, sizeMB: f.size / 1048576, status: "leyendo", info: null, sel: q.id, generado: true, adaptado: `Generado por la app desde ${src.file.name}, ${modo}.` };
+  const modo = o.mode === "crop" ? "recortando orillas" : "rellenando orillas";
+  const ne = { id: ++seq, file: f, name: nm, ext, sizeMB: f.size / 1048576, status: "leyendo", info: null, sel: q.id, generado: true, adaptado: `Generado por la app desde ${src.file.name}, ${modo}${o.auto ? " (en automático; revísalo)" : ""}.` };
   S.files.push(ne); track(ne);
-  $("#genModal").hidden = true; toast(`Arte de ${q.nombre} generado`); renderResults();
+  return ne;
+}
+$("#genOk").onclick = async () => {
+  if (!GEN.q || !GEN.bmp) return;
+  await generateFor(GEN);
+  $("#genModal").hidden = true; toast(`Arte de ${GEN.q.nombre} generado`); renderResults();
 };
+let PEND = [];
+async function generateAll(btn) {
+  const todo = PEND.filter(q => genSources(q).length);
+  if (!todo.length) return;
+  btn.disabled = true; let n = 0;
+  for (const q of todo) {
+    btn.textContent = `Generando ${++n} de ${todo.length}…`;
+    const best = genSources(q)[0];
+    try { const bmp = await createImageBitmap(best.e.file); await generateFor({ q, src: best.e, bmp, mode: best.diff > 8 ? "fill" : "crop", auto: true }); } catch (err) { console.error(err); }
+  }
+  btn.disabled = false; renderResults();
+  toast(`${n} arte${n > 1 ? "s" : ""} generado${n > 1 ? "s" : ""}. Revísalos en Resultados; dicen “Generado”.`);
+}
 
 async function saveFile(file, btn) {
   try {
@@ -1190,6 +1210,9 @@ function renderEntregas() {
       faltan.get(q.proveedor).push({ q, t: `${q.nombre}${q.ubicaciones.length ? ` (${q.ubicaciones.map(u => u.ubi).filter(Boolean).join(", ")})` : ""}: ${motivo}` });
     }
   }
+  PEND = [...faltan.values()].flat().map(x => x.q);
+  const nGen = PEND.filter(q => genSources(q).length).length;
+  const gb = $("#genAll"); gb.hidden = !nGen; if (!gb.disabled) gb.textContent = `Generar todas las que faltan (${nGen})`;
   const provs = [...new Set([...groups.keys(), ...faltan.keys()])];
   if (!provs.length) { t.append(el("tbody", null, el("tr", null, el("td", { class: "empty", text: "Todavía no hay artes que cumplan para armar entregas." })))); return; }
   t.append(el("thead", null, el("tr", null, ["Proveedor", "Artes", "Soportes", "Peso", "Pendientes", ""].map(h => el("th", { text: h })))));
@@ -1346,6 +1369,7 @@ drop.addEventListener("drop", async ev => {
 });
 $("#pickDir").onclick = () => $("#dirIn").click();
 $("#dirIn").onchange = ev => { addFiles([...ev.target.files]); ev.target.value = ""; };
+$("#genAll").onclick = ev => generateAll(ev.currentTarget);
 $("#inclWarn").onchange = () => renderEntregas();
 $("#exportCat").onclick = ev => saveFile(new File([JSON.stringify(S.soportes.map(({ id, ...x }) => x), null, 2)], "soportes.json", { type: "application/json" }), ev.target);
 $("#adaptAll").onclick = async ev => {
