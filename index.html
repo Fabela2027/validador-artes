@@ -139,6 +139,15 @@ details ul{margin:4px 0 0;padding-left:16px;font-size:.8rem;color:var(--muted)}
 .login input{width:100%}
 .msg{font-size:13px;padding:9px 12px;border-radius:6px}
 .msg.ok{background:var(--ok-soft);color:var(--ok)} .msg.err{background:var(--err-soft);color:var(--err)}
+.small-btn{font-size:12px;padding:3px 9px;margin-top:4px}
+.modal{position:fixed;inset:0;z-index:35;background:rgb(0 0 0/.35);display:grid;place-items:center;padding:16px max(16px,env(safe-area-inset-left,0px));overflow:auto}
+.modal .card{background:var(--surface);border-radius:12px;padding:20px;width:min(760px,100%);display:grid;gap:14px;box-shadow:0 18px 40px rgb(0 0 0/.25)}
+.modal h2{font-size:18px}
+.genprev{background:var(--sunk);border-radius:8px;padding:12px;display:grid;place-items:center}
+.genprev canvas{max-width:100%;max-height:50vh;height:auto;box-shadow:0 0 0 1px var(--line)}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:6px;overflow:hidden}
+.seg button{border:0;border-radius:0;background:var(--surface);color:var(--muted)}
+.seg button[aria-pressed="true"]{background:var(--head);color:var(--surface)}
 .toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:6px;font-size:.88rem;z-index:20}
 @media (max-width:760px){
   .controls{grid-template-columns:1fr}
@@ -274,6 +283,18 @@ details ul{margin:4px 0 0;padding-left:16px;font-size:.8rem;color:var(--muted)}
     <button type="button" id="loginReset">Olvidé mi contraseña</button>
     <div id="loginMsg" class="msg err" hidden></div>
   </form>
+</div>
+<div class="modal" id="genModal" hidden>
+  <div class="card" role="dialog" aria-modal="true" aria-labelledby="genTitle">
+    <div><div class="eyebrow" id="genEyebrow">Generar arte</div><h2 id="genTitle"></h2></div>
+    <div class="row">
+      <label class="f" style="flex:1 1 260px"><span>Arte de origen</span><select id="genSrc"></select></label>
+      <div class="f"><span>Cómo acomodarlo</span><div class="seg"><button type="button" id="genCrop" aria-pressed="true">Recortar orillas</button><button type="button" id="genFill" aria-pressed="false">Rellenar orillas</button></div></div>
+    </div>
+    <div class="genprev"><canvas id="genCanvas"></canvas></div>
+    <p class="hint" id="genInfo"></p>
+    <div class="row"><div class="spacer"></div><button type="button" id="genCancel">Cancelar</button><button type="button" class="primary" id="genOk">Usar este arte</button></div>
+  </div>
 </div>
 <div class="toast" id="toast" hidden></div>
 
@@ -954,6 +975,84 @@ async function runAdapt(e, plan, btn) {
     track(ne); renderResults();
   } catch (err) { toast("No se pudo adaptar: " + (err.message || err)); if (btn) { btn.disabled = false; btn.textContent = plan.label; } }
 }
+/* ---------------- generar arte para una medida que falta ----------------
+   Toma un arte de proporción parecida y lo acomoda a la medida: recortando parejo las orillas
+   o metiéndolo completo y rellenando las orillas con el mismo arte difuminado. Siempre con vista previa. */
+function genSources(q) {
+  if (q.tipo !== "digital") return [];
+  const r = q.ancho / q.alto;
+  return S.files.filter(e => e.status === "listo" && e.kind === "image" && /^(JPG|PNG|WEBP|GIF)$/.test(e.ext) && e.info && e.info.w && !(e.info.w === q.ancho && e.info.h === q.alto))
+    .map(e => ({ e, diff: pct(e.info.w / e.info.h, r) })).filter(x => x.diff <= 15)
+    .sort((a, b) => a.diff - b.diff || b.e.info.w * b.e.info.h - a.e.info.w * a.e.info.h);
+}
+const GEN = { q: null, src: null, mode: "crop", bmp: null };
+async function openGen(q) {
+  GEN.q = q; const srcs = genSources(q); if (!srcs.length) return;
+  $("#genTitle").textContent = `${q.proveedor} · ${q.nombre}`;
+  $("#genEyebrow").textContent = "Generar arte" + (q.ubicaciones && q.ubicaciones.length ? " · " + q.ubicaciones.map(u => u.ubi).filter(Boolean).join(", ") : "");
+  $("#genSrc").replaceChildren(...srcs.map((x, k) => el("option", { value: x.e.id, selected: k === 0, text: `${x.e.file.name} — ${x.e.info.w}×${x.e.info.h} px (proporción ${nf(x.diff)} % distinta)` })));
+  GEN.mode = pct(srcs[0].e.info.w / srcs[0].e.info.h, q.ancho / q.alto) > 8 ? "fill" : "crop";
+  $("#genModal").hidden = false;
+  await genLoad();
+}
+async function genLoad() {
+  GEN.src = S.files.find(e => String(e.id) === $("#genSrc").value);
+  try { GEN.bmp = await createImageBitmap(GEN.src.file); } catch { GEN.bmp = null; toast("No se pudo abrir ese arte"); return; }
+  genDraw();
+}
+function genRender(c) {
+  const W = GEN.q.ancho, H = GEN.q.alto, b = GEN.bmp, g = c.getContext("2d");
+  c.width = W; c.height = H; g.imageSmoothingQuality = "high";
+  const cover = Math.max(W / b.width, H / b.height), contain = Math.min(W / b.width, H / b.height);
+  g.fillStyle = "#ffffff"; g.fillRect(0, 0, W, H);
+  if (GEN.mode === "crop") {
+    const w = b.width * cover, h = b.height * cover; g.drawImage(b, (W - w) / 2, (H - h) / 2, w, h);
+  } else {
+    const w = b.width * cover, h = b.height * cover;
+    const bl = Math.round(Math.max(W, H) / 40), m = bl * 3;
+    g.save(); try { g.filter = "blur(" + bl + "px)"; } catch {}
+    g.drawImage(b, (W - w) / 2 - m, (H - h) / 2 - m, w + 2 * m, h + 2 * m); g.restore();
+    const w2 = b.width * contain, h2 = b.height * contain; g.drawImage(b, (W - w2) / 2, (H - h2) / 2, w2, h2);
+  }
+  return { cover, contain };
+}
+function genDraw() {
+  if (!GEN.bmp) return;
+  $("#genCrop").setAttribute("aria-pressed", GEN.mode === "crop"); $("#genFill").setAttribute("aria-pressed", GEN.mode === "fill");
+  const { cover, contain } = genRender($("#genCanvas"));
+  const b = GEN.bmp, W = GEN.q.ancho, H = GEN.q.alto, parts = [];
+  if (GEN.mode === "crop") {
+    const cx = Math.round((b.width * cover - W) / 2 / cover), cy = Math.round((b.height * cover - H) / 2 / cover);
+    parts.push(cx ? `Se recortan ${cx} px del arte original a cada lado (izquierda y derecha).` : cy ? `Se recortan ${cy} px del arte original arriba y abajo.` : "No se recorta nada.");
+    parts.push("Revisa que no se corte texto, logo ni legales.");
+    if (cover > 1.01) parts.push(`El arte se agranda ${nf(cover * 100, 0)} %; puede verse menos nítido.`);
+  } else {
+    const fx = Math.round((W - b.width * contain) / 2), fy = Math.round((H - b.height * contain) / 2);
+    parts.push(`El arte entra completo, sin recortes. Se rellenan ${fx ? fx + " px a cada lado" : fy + " px arriba y abajo"} con el mismo arte difuminado.`);
+    if (contain > 1.01) parts.push(`El arte se agranda ${nf(contain * 100, 0)} %; puede verse menos nítido.`);
+  }
+  parts.push("El nuevo archivo se marca como generado por la app para que el proveedor y la agencia lo sepan si preguntan.");
+  $("#genInfo").textContent = parts.join(" ");
+}
+$("#genSrc").onchange = genLoad;
+$("#genCrop").onclick = () => { GEN.mode = "crop"; genDraw(); };
+$("#genFill").onclick = () => { GEN.mode = "fill"; genDraw(); };
+$("#genCancel").onclick = () => { $("#genModal").hidden = true; };
+$("#genModal").addEventListener("keydown", ev => { if (ev.key === "Escape") $("#genModal").hidden = true; });
+$("#genOk").onclick = async () => {
+  const q = GEN.q, src = GEN.src; if (!q || !GEN.bmp) return;
+  const fl = fmtList(q.formatos), ext = ["JPG", "PNG", "WEBP"].find(f => !fl.length || fl.includes(f)) || "JPG";
+  const c = document.createElement("canvas"); genRender(c);
+  const blob = await new Promise(res => c.toBlob(res, RASTER_OUT[ext], 0.95));
+  const base = src.file.name.replace(/\.[^.]+$/, "").replace(/_?\d{3,5}\s*[xX×]\s*\d{3,5}/, "");
+  const nm = `${base}_${q.ancho}x${q.alto}_generado.${ext === "JPG" ? "jpg" : ext.toLowerCase()}`;
+  const f = new File([blob], nm, { type: MIME[ext] });
+  const modo = GEN.mode === "crop" ? "recortando orillas" : "rellenando orillas";
+  const ne = { id: ++seq, file: f, name: nm, ext, sizeMB: f.size / 1048576, status: "leyendo", info: null, sel: q.id, generado: true, adaptado: `Generado por la app desde ${src.file.name}, ${modo}.` };
+  S.files.push(ne); track(ne);
+  $("#genModal").hidden = true; toast(`Arte de ${q.nombre} generado`); renderResults();
+};
+
 async function saveFile(file, btn) {
   try {
     const dl = window.claude && window.claude.use ? await window.claude.use("downloads") : null;
@@ -1006,7 +1105,7 @@ function renderResults() {
     const thumb = el("div", { class: "thumb" }, e.thumb ? el("img", { src: e.thumb, alt: "" }) : el("span", { class: "fmt", text: e.ext || "?" }));
     const body = el("div", { style: "min-width:0" },
       el("div", { class: "name", text: e.name }),
-      el("div", { class: "meta" }, el("span", { text: e.ext || "—" }), el("span", { text: nf(e.sizeMB, 2) + " MB" }), e.info && e.info.color ? el("span", { text: e.info.color }) : null, e.info && e.info.dpiX ? el("span", { text: nf(e.info.dpiX, 0) + " dpi en archivo" }) : null, e.adaptado ? el("span", { class: "tag ad", text: "Adaptado" }) : null));
+      el("div", { class: "meta" }, el("span", { text: e.ext || "—" }), el("span", { text: nf(e.sizeMB, 2) + " MB" }), e.info && e.info.color ? el("span", { text: e.info.color }) : null, e.info && e.info.dpiX ? el("span", { text: nf(e.info.dpiX, 0) + " dpi en archivo" }) : null, e.adaptado ? el("span", { class: "tag ad", text: e.generado ? "Generado" : "Adaptado" }) : null));
     let pill;
     if (e.status === "leyendo") { pill = el("span", { class: "pill p-wait", text: "Leyendo…" }); }
     else if (e.status === "error") { pill = el("span", { class: "pill p-err", text: "No se pudo leer" }); body.append(el("ul", { class: "checks" }, el("li", { class: "l-err", text: e.err }))); counts.err++; }
@@ -1028,7 +1127,7 @@ function renderResults() {
     if (e.adaptado) {
       extra.push(el("p", { class: "hint", text: e.adaptado }));
       if (/^(JPG|PNG|WEBP|PDF)$/.test(e.ext)) extra.push(el("button", { type: "button", text: "Descargar este archivo", onclick: ev => saveFile(e.file, ev.target) }));
-      extra.push(el("button", { class: "ghost", type: "button", text: "Volver al original", onclick: () => { const k = S.files.indexOf(e); if (k >= 0) S.files.splice(k, 1, e.original); renderResults(); } }));
+      if (e.original) extra.push(el("button", { class: "ghost", type: "button", text: "Volver al original", onclick: () => { const k = S.files.indexOf(e); if (k >= 0) S.files.splice(k, 1, e.original); renderResults(); } }));
     }
     const side = el("div", { class: "rside" }, pill, allSups().length ? sel : null, extra, el("button", { class: "ghost", type: "button", text: "Quitar", onclick: () => { S.files = S.files.filter(x => x !== e); renderResults(); } }));
     box.append(el("article", { class: "res" + (r ? " v-" + r.v : e.status === "error" ? " v-err" : "") }, thumb, body, side));
@@ -1078,7 +1177,7 @@ function renderEntregas() {
         motivo = `${e.file.name}: ${err}` + (ap ? ` Usa “${ap.label}” en el arte.` : "");
       }
       if (!faltan.has(q.proveedor)) faltan.set(q.proveedor, []);
-      faltan.get(q.proveedor).push(`${q.nombre}${q.ubicaciones.length ? ` (${q.ubicaciones.map(u => u.ubi).filter(Boolean).join(", ")})` : ""}: ${motivo}`);
+      faltan.get(q.proveedor).push({ q, t: `${q.nombre}${q.ubicaciones.length ? ` (${q.ubicaciones.map(u => u.ubi).filter(Boolean).join(", ")})` : ""}: ${motivo}` });
     }
   }
   const provs = [...new Set([...groups.keys(), ...faltan.keys()])];
@@ -1091,7 +1190,7 @@ function renderEntregas() {
     const mb = [...new Set(arr.map(x => x.e))].reduce((a, e) => a + e.sizeMB, 0);
     let btn = null;
     if (arr.length) { btn = el("button", { class: "primary", type: "button", text: "Descargar ZIP" }); btn.onclick = () => zipProveedor(p, arr, btn); }
-    const pend = fl.length ? el("details", null, el("summary", { text: `Faltan ${fl.length} medida${fl.length > 1 ? "s" : ""}` }), el("ul", null, fl.map(x => el("li", { text: x })))) : "—";
+    const pend = fl.length ? el("details", null, el("summary", { text: `Faltan ${fl.length} medida${fl.length > 1 ? "s" : ""}` }), el("ul", null, fl.map(x => el("li", null, x.t, " ", genSources(x.q).length ? el("button", { type: "button", class: "small-btn", text: "Generar desde otro arte", onclick: () => openGen(x.q) }) : null)))) : "—";
     tb.append(el("tr", null, el("td", { text: p }), el("td", { class: "num", text: arr.length }), el("td", { class: "wrap", text: sops.join(", ") || "—" }), el("td", { class: "num", text: arr.length ? nf(mb, mb < 1 ? 2 : 1) + " MB" : "—" }), el("td", { class: "wrap" }, pend), el("td", null, btn)));
   }
   t.append(tb);
@@ -1111,6 +1210,7 @@ async function zipProveedor(p, arr, btn) {
       for (let k = 2; used.has(path); k++) path = safeName(r.s.nombre) + "/" + safeName(e.file.name).replace(/(\.[^.]+)?$/, ` (${k})$1`);
       used.add(path); z.file(path, e.file, { binary: true });
       lista.push(`• ${path}`, `   Soporte: ${r.s.nombre} — ${r.expected}`, `   Archivo: ${r.detected}${r.v === "warn" ? "  (con observaciones)" : ""}`);
+      if (e.adaptado) lista.push(`   Nota: ${e.adaptado}`);
       if (r.s.plan) for (const u of r.s.ubicaciones) lista.push(`   Ubicación: ${[u.ubi, u.venue, u.ciudad].filter(Boolean).join(" · ")}`);
     }
     z.file("LISTA DE ARTES.txt", lista.join("\r\n"));
